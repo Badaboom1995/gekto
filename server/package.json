@@ -1,0 +1,21 @@
+{
+  "name": "@gekto/server",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "GEKTO_DEV=1 bun --watch src/proxy.ts",
+    "preview": "bun --watch src/proxy.ts",
+    "build": "bun build src/proxy.ts --outdir dist --target node",
+    "start": "bun dist/proxy.js"
+  },
+  "dependencies": {
+    "express": "^5.0.1",
+    "express-http-proxy": "^2.1.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/express-http-proxy": "^1.6.7",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
