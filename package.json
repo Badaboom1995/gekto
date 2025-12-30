@@ -9,7 +9,8 @@
     "dev:widget": "bun --filter widget dev",
     "dev:proxy": "bun --filter @gekto/server dev",
     "preview": "bun run build && concurrently -n test,proxy -c blue,yellow \"bun --filter test-app dev\" \"bun --filter @gekto/server preview\"",
-    "build": "bun --filter widget build && bun --filter @gekto/server build"
+    "build": "bun --filter widget build && bun --filter @gekto/server build",
+    "bundle": "bun run build && bun run scripts/bundle.ts"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

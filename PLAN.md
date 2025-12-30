@@ -2,7 +2,7 @@
 
 ## Overview
 
-Gekto is a developer tool that runs as `npx gekto` in any project directory. It provides a proxy server that injects a React widget overlay into the user's app, enabling browser-based terminal access and AI agent orchestration with full file system access.
+Gekto is a developer tool that injects a React widget overlay into any web app via a proxy server. Future versions will enable browser-based terminal access and AI agent orchestration.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -11,150 +11,101 @@ Gekto is a developer tool that runs as `npx gekto` in any project directory. It 
 │  │              User's App (React, Vue, etc.)                  │    │
 │  │  ┌───────────────────────────────────────────────────────┐  │    │
 │  │  │          Gekto Widget (React, injected)               │  │    │
-│  │  │  • Floating bubbles UI                                │  │    │
-│  │  │  • Terminal panels                                    │  │    │
-│  │  │  • Agent management                                   │  │    │
+│  │  │  • Floating UI overlay                                │  │    │
+│  │  │  • Shadow DOM isolated                                │  │    │
 │  │  └───────────────────────────────────────────────────────┘  │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────┘
-                              │ WebSocket + HTTP
+                              │ HTTP
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    Gekto Proxy Server (Node.js)                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐     │
-│  │ HTTP Proxy   │  │  WebSocket   │  │   Agent Orchestrator   │     │
-│  │ + Injection  │  │   Server     │  │  • Claude Code         │     │
-│  └──────────────┘  └──────────────┘  │  • Codex               │     │
-│                                       │  • Gemini API          │     │
-│                                       │  • Custom agents       │     │
-│                                       └────────────────────────┘     │
+│                    Gekto Proxy Server (Bun)                         │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                    PTY Manager (node-pty)                     │   │
-│  │  • Spawns real terminals                                      │   │
-│  │  • Manages multiple sessions                                  │   │
-│  │  • Full file system access                                    │   │
+│  │ HTTP Proxy + HTML Injection                                   │   │
+│  │ • Intercepts HTML responses                                   │   │
+│  │ • Injects widget script before </body>                        │   │
+│  │ • Proxies WebSocket for HMR                                   │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      User's Project Directory                        │
-│  • Full read/write access                                           │
-│  • Git operations                                                   │
-│  • Package management                                               │
+│                      Target App (any port)                          │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## How It Works
+## Current Implementation
 
-### The Core Idea
-
-Gekto is a single npx command that spins up a proxy server in the user's project directory. When the user opens the proxy URL in their browser, they see their normal app (React, Vue, whatever) but with the widget overlay injected on top. The proxy intercepts HTML responses and injects the widget's JavaScript and CSS before the closing `</body>` tag.
-
-### The Communication Layer
-
-The proxy server does more than just inject code - it also runs a WebSocket server and a PTY (pseudo-terminal) manager. The widget in the browser connects back to this WebSocket to request real terminal sessions. When the user opens a terminal in the widget, the server spawns an actual shell process using node-pty, and streams the input/output over WebSocket. This means the user can run `claude`, `codex`, or any CLI tool directly from the browser widget, with full access to their project files.
-
-### Agent Orchestration
-
-On top of raw terminals, there's an Agent Orchestrator layer. This lets you programmatically spawn and manage AI agents - start Claude Code with a specific system prompt, run Codex for a different task, or call Gemini's API directly for tasks where CLI agents underperform. The orchestrator can run multiple agents in parallel, route tasks to the best-suited model, and aggregate their outputs. The widget UI shows these as cards or bubbles that users can interact with.
-
-### Developer Experience
-
-The project is a monorepo with four packages: `cli` (the npx entry point), `server` (proxy + WebSocket + agents), `widget` (React + Tailwind, built as a single IIFE bundle), and `shared` (TypeScript types). There's also a `playground` test app. During development, you run the playground on port 5173, the proxy on port 3200, and the widget in watch mode - Turborepo orchestrates all of this with a single `pnpm dev` command. The widget uses Shadow DOM so its styles never clash with the user's app. When you publish, users just run `npx gekto` and everything works.
-
-## Project Structure
+### Project Structure
 
 ```
 gekto/
-├── packages/
-│   ├── cli/                      # npx entry point
-│   │   ├── src/
-│   │   │   ├── index.ts          # CLI entry
-│   │   │   └── commands/
-│   │   │       └── start.ts
-│   │   ├── package.json          # name: "gekto"
-│   │   └── tsconfig.json
-│   │
-│   ├── server/                   # Proxy + WebSocket + Agent orchestration
-│   │   ├── src/
-│   │   │   ├── index.ts
-│   │   │   ├── proxy/
-│   │   │   │   ├── http-proxy.ts
-│   │   │   │   └── injector.ts
-│   │   │   ├── websocket/
-│   │   │   │   ├── server.ts
-│   │   │   │   └── handlers/
-│   │   │   │       ├── terminal.ts
-│   │   │   │       └── agent.ts
-│   │   │   ├── agents/
-│   │   │   │   ├── orchestrator.ts
-│   │   │   │   ├── base-agent.ts
-│   │   │   │   ├── claude-code.ts
-│   │   │   │   ├── codex.ts
-│   │   │   │   └── gemini.ts
-│   │   │   ├── pty/
-│   │   │   │   └── manager.ts
-│   │   │   └── config/
-│   │   │       └── schema.ts
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   │
-│   ├── widget/                   # React widget (injected into user's app)
-│   │   ├── src/
-│   │   │   ├── main.tsx          # Entry, mounts to shadow DOM
-│   │   │   ├── App.tsx
-│   │   │   ├── components/
-│   │   │   │   ├── Bubble.tsx
-│   │   │   │   ├── Panel.tsx
-│   │   │   │   ├── Terminal.tsx
-│   │   │   │   ├── AgentCard.tsx
-│   │   │   │   └── ...
-│   │   │   ├── hooks/
-│   │   │   │   ├── useWebSocket.ts
-│   │   │   │   ├── useTerminal.ts
-│   │   │   │   └── useAgents.ts
-│   │   │   ├── stores/           # Zustand for state
-│   │   │   │   ├── terminal.ts
-│   │   │   │   └── agents.ts
-│   │   │   └── styles/
-│   │   │       └── index.css     # Tailwind
-│   │   ├── vite.config.ts        # Builds IIFE bundle
-│   │   ├── package.json
-│   │   ├── tailwind.config.js
-│   │   └── tsconfig.json
-│   │
-│   └── shared/                   # Shared types & utilities
-│       ├── src/
-│       │   ├── types/
-│       │   │   ├── agent.ts
-│       │   │   ├── terminal.ts
-│       │   │   └── messages.ts
-│       │   └── utils/
-│       ├── package.json
-│       └── tsconfig.json
+├── server/                    # Proxy server
+│   ├── src/
+│   │   └── proxy.ts          # HTTP proxy with widget injection
+│   └── package.json
 │
-├── apps/
-│   └── playground/               # Test React app for DX
-│       ├── src/
-│       │   ├── main.tsx
-│       │   └── App.tsx
-│       ├── vite.config.ts
-│       └── package.json
+├── widget/                    # React widget (injected into user's app)
+│   ├── src/
+│   │   ├── main.tsx          # Entry, mounts to Shadow DOM
+│   │   ├── App.tsx           # Widget UI
+│   │   └── index.css         # Tailwind styles
+│   ├── vite.config.ts        # Builds IIFE bundle
+│   └── package.json
 │
-├── package.json                  # Workspace root (pnpm workspaces)
-├── pnpm-workspace.yaml
-├── turbo.json                    # Build orchestration
-└── tsconfig.base.json
+├── test-app/                  # Test React app for development
+│   └── ...
+│
+├── scripts/
+│   └── bundle.ts             # Creates distributable bundle
+│
+├── dist/                      # Bundled output (single file)
+│   └── gekto.ts              # Self-contained proxy + embedded widget
+│
+└── package.json               # Workspace root (bun workspaces)
 ```
 
-## Key Design Decisions
+### How It Works
 
-### 1. Monorepo with Workspaces
+1. **Proxy Server** - Intercepts all HTTP requests to target app
+2. **HTML Injection** - Detects HTML responses and injects widget script before `</body>`
+3. **Widget Loading** - In dev mode, loads from Vite dev server (HMR). In production, widget is embedded in proxy
+4. **Shadow DOM** - Widget renders in isolated Shadow DOM to prevent style conflicts
 
-Use pnpm workspaces + Turborepo for efficient builds. Shared types between server and widget. Single `pnpm build` builds everything in correct order.
+### Scripts
 
-### 2. Widget Isolation (Shadow DOM)
+```bash
+# Development (with HMR for both test-app and widget)
+bun run dev
+
+# Preview production build
+bun run preview
+
+# Build widget + server
+bun run build
+
+# Create distributable bundle
+bun run bundle
+```
+
+### Using the Bundle
+
+```bash
+# Build the distributable
+bun run bundle
+
+# Copy dist/gekto.ts to any project and run:
+bun gekto.ts --target 3000
+
+# Options:
+#   -t, --target  Target app port (required)
+#   -p, --port    Proxy port (default: 3200)
+#   -h, --help    Show help
+```
+
+### Key Design Decisions
+
+#### 1. Widget Isolation (Shadow DOM)
 
 ```tsx
 // widget/src/main.tsx
@@ -167,112 +118,60 @@ const shadow = container.attachShadow({ mode: 'open' });
 // Mount React here - fully isolated from user's app
 ```
 
-### 3. WebSocket Protocol
+#### 2. Dev vs Production Mode
 
-```typescript
-// shared/src/types/messages.ts
-type Message =
-  | { type: 'terminal:input'; sessionId: string; data: string }
-  | { type: 'terminal:output'; sessionId: string; data: string }
-  | { type: 'terminal:create'; shell?: string }
-  | { type: 'agent:start'; agentType: string; config: AgentConfig }
-  | { type: 'agent:output'; agentId: string; data: string }
-  | { type: 'agent:status'; agentId: string; status: AgentStatus }
-  | { type: 'file:watch'; patterns: string[] }
-  | { type: 'file:changed'; path: string };
-```
+- **Dev mode** (`GEKTO_DEV=1`): Widget loads from Vite dev server for HMR
+- **Production mode** (default): Widget is embedded as base64 in the proxy script
 
-### 4. Agent Orchestrator Pattern
+#### 3. Single File Distribution
 
-```typescript
-// server/src/agents/orchestrator.ts
-class AgentOrchestrator {
-  private agents: Map<string, BaseAgent> = new Map();
-
-  async spawn(type: 'claude' | 'codex' | 'gemini', config: AgentConfig) {
-    const agent = AgentFactory.create(type, config);
-    await agent.start();
-    this.agents.set(agent.id, agent);
-    return agent;
-  }
-
-  async delegate(task: Task) {
-    // Smart routing - e.g., use Gemini for specific tasks
-    const agent = this.selectBestAgent(task);
-    return agent.execute(task);
-  }
-}
-```
-
-### 5. DX: Development Mode
-
-```bash
-# Terminal 1: Run test app
-pnpm --filter playground dev  # localhost:5173
-
-# Terminal 2: Run widget in watch mode
-pnpm --filter widget dev      # Rebuilds on change
-
-# Terminal 3: Run proxy
-pnpm --filter server dev      # localhost:3200, proxies 5173
-```
-
-Or with Turbo (single command):
-
-```bash
-pnpm dev  # Runs all in parallel with proper deps
-```
-
-### 6. Publishing & Usage
-
-```bash
-# User runs in their project:
-npx gekto --port 3200 --target 5173
-
-# Or with config file (gekto.config.js):
-npx gekto
-```
+The `bun run bundle` command creates a self-contained `gekto.ts` file with:
+- Full proxy server code
+- Widget bundle embedded as base64
+- CLI argument parsing
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| CLI | Commander.js, chalk |
-| Server | Node.js, Express, ws, node-pty |
-| Widget | React 18, Zustand, Tailwind, xterm.js |
-| Build | Vite (widget IIFE), tsup (server/cli), Turborepo |
-| Types | TypeScript, Zod (validation) |
-| Package Manager | pnpm workspaces |
+| Runtime | Bun |
+| Server | Node.js http module |
+| Widget | React 19, Tailwind CSS v4 |
+| Build | Vite (widget IIFE) |
+| Package Manager | bun workspaces |
 
-## Implementation Steps
+## Implementation Progress
 
-### Phase 1: Foundation
-1. Initialize pnpm workspace and Turborepo config
-2. Set up shared TypeScript configuration
-3. Create CLI skeleton with Commander.js
-4. Port proxy server to TypeScript with configurable ports
+### Phase 1: Foundation ✅
+- [x] Set up bun workspace
+- [x] Create proxy server with HTML injection
+- [x] Create widget with React + Tailwind + Shadow DOM
+- [x] Dev mode with HMR support
+- [x] Production build with embedded widget
 
-### Phase 2: Core Infrastructure
-5. Add WebSocket server alongside HTTP proxy
-6. Implement PTY manager with node-pty
-7. Create basic widget scaffold with React + Tailwind + Shadow DOM
-8. Integrate xterm.js for terminal rendering
+### Phase 2: Distribution ✅
+- [x] CLI argument parsing (--target, --port, --help)
+- [x] Bundle script for single-file distribution
+- [x] Base64 widget embedding
 
-### Phase 3: Widget UI
-9. Build terminal component with WebSocket connection
-10. Create bubble/panel UI for widget overlay
-11. Add state management with Zustand
-12. Style with Tailwind (scoped to Shadow DOM)
+### Phase 3: Future - Core Infrastructure
+- [ ] Add WebSocket server for bidirectional communication
+- [ ] Implement PTY manager with node-pty
+- [ ] Integrate xterm.js for terminal rendering
 
-### Phase 4: Agent System
-13. Define base agent interface
-14. Implement Claude Code agent (spawns CLI)
-15. Implement Codex agent
-16. Add Gemini API agent for programmatic tasks
-17. Build orchestrator for multi-agent coordination
+### Phase 4: Future - Widget UI
+- [ ] Build terminal component with WebSocket connection
+- [ ] Create bubble/panel UI for widget overlay
+- [ ] Add state management with Zustand
 
-### Phase 5: Polish & Publish
-18. Create playground app for development testing
-19. Add configuration file support (gekto.config.js)
-20. Write documentation
-21. Publish to npm
+### Phase 5: Future - Agent System
+- [ ] Define base agent interface
+- [ ] Implement Claude Code agent (spawns CLI)
+- [ ] Implement Codex agent
+- [ ] Add Gemini API agent
+- [ ] Build orchestrator for multi-agent coordination
+
+### Phase 6: Future - Polish & Publish
+- [ ] Publish to npm (`npx gekto`)
+- [ ] Configuration file support (gekto.config.js)
+- [ ] Documentation

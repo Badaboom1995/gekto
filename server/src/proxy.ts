@@ -3,12 +3,46 @@ import https from 'https'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { parseArgs } from 'util'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Parse CLI arguments
+const { values: args } = parseArgs({
+  options: {
+    port: { type: 'string', short: 'p' },
+    target: { type: 'string', short: 't' },
+    help: { type: 'boolean', short: 'h' },
+  },
+  strict: false,
+})
+
+if (args.help) {
+  console.log(`
+  Gekto Proxy - Inject widget into any web app
+
+  Usage:
+    bun gekto.ts --target 3000
+    bun gekto.ts -t 3000 -p 8080
+
+  Options:
+    -t, --target  Target app port (required)
+    -p, --port    Proxy port (default: 3200)
+    -h, --help    Show this help
+  `)
+  process.exit(0)
+}
+
+// Only require --target for bundled version (not dev mode)
+if (!args.target && !process.env.TARGET_PORT && !process.env.GEKTO_DEV) {
+  console.error('Error: --target port is required\n')
+  console.error('Usage: bun gekto.ts --target 3000')
+  process.exit(1)
+}
+
 // Configuration
-const PROXY_PORT = parseInt(process.env.PORT || '3200')
-const TARGET_PORT = parseInt(process.env.TARGET_PORT || '5173')
+const PROXY_PORT = parseInt(args.port || process.env.PORT || '3200')
+const TARGET_PORT = parseInt(args.target || process.env.TARGET_PORT || '5173')
 const WIDGET_PORT = parseInt(process.env.WIDGET_PORT || '5174')
 const DEV_MODE = process.env.GEKTO_DEV === '1'
 
