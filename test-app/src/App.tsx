@@ -29,7 +29,7 @@ const recommendations: Product[] = [
   { id: 12, name: 'NeXT Cube', category: 'Business', price: 999.00, rating: 4.9, reviews: 720, image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/NEXT_Cube-IMG_7154.jpg/1200px-NEXT_Cube-IMG_7154.jpg' },
 ]
 
-const categories = ['All Products', 'Home', 'Business', 'Gaming', 'Education']
+const categories = ['All', 'Home', 'Business', 'Gaming', 'Education']
 
 function Header() {
   return (
@@ -102,14 +102,14 @@ function CategorySidebar({ selectedCategory, onSelectCategory }: CategorySidebar
               onClick={() => onSelectCategory(category)}
             >
               <span className="category-icon">
-                {category === 'All Products' && '📦'}
+                {category === 'All' && '📦'}
                 {category === 'Home' && '🏠'}
                 {category === 'Business' && '💼'}
                 {category === 'Gaming' && '🎮'}
                 {category === 'Education' && '📚'}
               </span>
               <span>{category}</span>
-              {category === 'All Products' && <span className="category-count">{products.length}</span>}
+              {category === 'All' && <span className="category-count">{products.length}</span>}
             </button>
           </li>
         ))}
@@ -297,9 +297,9 @@ function Footer() {
 }
 
 function App() {
-  const [selectedCategory, setSelectedCategory] = useState('All Products')
+  const [selectedCategory, setSelectedCategory] = useState('All')
 
-  const filteredProducts = selectedCategory === 'All Products'
+  const filteredProducts = selectedCategory === 'All'
     ? products
     : products.filter(p => p.category === selectedCategory)
 

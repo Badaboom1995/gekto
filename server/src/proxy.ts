@@ -4,6 +4,8 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { parseArgs } from 'util'
+import { setupTerminalWebSocket } from './terminal.js'
+import { setupAgentWebSocket } from './agents/agentWebSocket.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -205,8 +207,21 @@ const server = http.createServer((req, res) => {
   req.pipe(proxyReq)
 })
 
-// Handle WebSocket upgrades for Vite HMR
+// Setup terminal WebSocket (handles /__gekto/terminal)
+setupTerminalWebSocket(server)
+
+// Setup agent WebSocket (handles /__gekto/agent)
+setupAgentWebSocket(server)
+
+// Handle WebSocket upgrades for Vite HMR (skip gekto paths)
 server.on('upgrade', (req, socket, head) => {
+  const url = req.url || ''
+
+  // Terminal and Agent WebSockets are handled separately
+  if (url.startsWith('/__gekto/terminal') || url.startsWith('/__gekto/agent')) {
+    return
+  }
+
   const proxyReq = http.request({
     hostname: 'localhost',
     port: TARGET_PORT,

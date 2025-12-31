@@ -177,7 +177,7 @@ export function SwarmProvider({ children, initialLizards }: SwarmProviderProps) 
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedIds, lizards.length, activeChatId])
 
-  // Click outside to clear selection and close chat
+  // Click outside to clear selection (but not chat)
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       // Don't clear during shift+drag selection
@@ -186,7 +186,6 @@ export function SwarmProvider({ children, initialLizards }: SwarmProviderProps) 
       const target = e.target as HTMLElement
       if (!target.closest('[data-selectable]') && !target.closest('[data-swarm-ui]')) {
         setSelectedIds(new Set())
-        setActiveChatId(null)
       }
     }
 

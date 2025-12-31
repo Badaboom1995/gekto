@@ -1,1 +1,18 @@
 @import "tailwindcss";
+
+/* Prevent Tailwind reset from breaking xterm.js */
+.xterm {
+  all: initial;
+  font-family: monospace;
+}
+.xterm * {
+  all: revert;
+}
+.xterm-helper-textarea {
+  position: absolute !important;
+  opacity: 0 !important;
+  left: -9999px !important;
+}
+.xterm-width-cache-measure-container{
+  opacity: 0 !important;
+}

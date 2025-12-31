@@ -3,19 +3,23 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "GEKTO_DEV=1 bun --watch src/proxy.ts",
-    "preview": "bun --watch src/proxy.ts",
-    "build": "bun build src/proxy.ts --outdir dist --target node",
-    "start": "bun dist/proxy.js"
+    "dev": "GEKTO_DEV=1 tsx watch src/proxy.ts",
+    "preview": "tsx watch src/proxy.ts",
+    "build": "tsc && node dist/proxy.js",
+    "start": "node dist/proxy.js"
   },
   "dependencies": {
     "express": "^5.0.1",
-    "express-http-proxy": "^2.1.2"
+    "express-http-proxy": "^2.1.2",
+    "node-pty": "^1.1.0-beta30",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/express-http-proxy": "^1.6.7",
     "@types/node": "^22.10.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.2"
   }
 }

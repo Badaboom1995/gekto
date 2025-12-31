@@ -7,6 +7,8 @@ interface Message {
   timestamp: Date
 }
 
+type AgentState = 'loading' | 'ready' | 'working' | 'waiting_input' | 'completed' | 'error'
+
 interface ChatWindowProps {
   title?: string
   initialSize?: { width: number; height: number }
@@ -22,16 +24,75 @@ export function ChatWindow({
   color = 'rgba(255, 255, 255, 0.5)',
   onClose,
 }: ChatWindowProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: '1', text: 'Hey! How can I help you today?', sender: 'bot', timestamp: new Date() }
-  ])
+  const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [size, setSize] = useState(initialSize)
   const [isResizing, setIsResizing] = useState(false)
+  const [agentState, setAgentState] = useState<AgentState>('loading')
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
+  const wsRef = useRef<WebSocket | null>(null)
+
+  // Connect to agent WebSocket
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${protocol}//${window.location.host}/__gekto/agent`)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      console.log('[Chat] Connected to agent')
+    }
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+
+        switch (msg.type) {
+          case 'state':
+            setAgentState(msg.state)
+            if (msg.state === 'ready' && messages.length === 0) {
+              setMessages([{
+                id: '1',
+                text: 'Claude Code is ready! How can I help you?',
+                sender: 'bot',
+                timestamp: new Date(),
+              }])
+            }
+            break
+
+          case 'response':
+            // Clean response from server
+            if (msg.text) {
+              setMessages(prev => [...prev, {
+                id: Date.now().toString(),
+                text: msg.text,
+                sender: 'bot',
+                timestamp: new Date(),
+              }])
+            }
+            break
+        }
+      } catch (err) {
+        console.error('[Chat] Failed to parse message:', err)
+      }
+    }
+
+    ws.onclose = () => {
+      console.log('[Chat] Disconnected from agent')
+      setAgentState('error')
+    }
+
+    ws.onerror = () => {
+      console.error('[Chat] WebSocket error')
+      setAgentState('error')
+    }
+
+    return () => {
+      ws.close()
+    }
+  }, [])
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -78,7 +139,7 @@ export function ChatWindow({
   }, [isResizing, minSize.width, minSize.height])
 
   const handleSend = () => {
-    if (!inputValue.trim()) return
+    if (!inputValue.trim() || agentState !== 'ready') return
 
     const newMessage: Message = {
       id: Date.now().toString(),
@@ -88,23 +149,32 @@ export function ChatWindow({
     }
 
     setMessages(prev => [...prev, newMessage])
-    setInputValue('')
 
-    // Simulate bot response
-    setTimeout(() => {
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        text: 'Thanks for your message! This is a demo response.',
-        sender: 'bot',
-        timestamp: new Date(),
-      }])
-    }, 1000)
+    // Send to agent
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'chat',
+        content: inputValue.trim(),
+      }))
+    }
+
+    setInputValue('')
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  const getStatusText = () => {
+    switch (agentState) {
+      case 'loading': return 'Starting Claude Code...'
+      case 'working': return 'Thinking...'
+      case 'waiting_input': return 'Waiting for permission...'
+      case 'error': return 'Connection error'
+      default: return ''
     }
   }
 
@@ -134,7 +204,21 @@ export function ChatWindow({
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         }}
       >
-        <span className="text-white font-medium text-sm">{title}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-white font-medium text-sm">{title}</span>
+          {agentState === 'loading' && (
+            <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+          )}
+          {agentState === 'ready' && (
+            <div className="w-2 h-2 rounded-full bg-green-400" />
+          )}
+          {agentState === 'working' && (
+            <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+          )}
+          {agentState === 'error' && (
+            <div className="w-2 h-2 rounded-full bg-red-400" />
+          )}
+        </div>
         {onClose && (
           <button
             onClick={onClose}
@@ -147,16 +231,25 @@ export function ChatWindow({
 
       {/* Messages */}
       <div
-        className="chat-messages flex-1 overflow-y-auto p-4 space-y-3"
-        style={{ minHeight: 0 }}
+        className="chat-messages flex-1 p-4 space-y-3"
+        style={{ minHeight: 0, overflowY: 'auto' }}
       >
-        {messages.map(message => (
+        {agentState === 'loading' && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-white/60 text-sm flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+              <span>Starting Claude Code...</span>
+            </div>
+          </div>
+        )}
+
+        {agentState !== 'loading' && messages.map(message => (
           <div
             key={message.id}
             className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className="max-w-[80%] px-3 py-2 rounded-xl text-sm"
+              className="max-w-[80%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap"
               style={{
                 background: message.sender === 'user'
                   ? `${color}66`
@@ -168,8 +261,31 @@ export function ChatWindow({
             </div>
           </div>
         ))}
+
+        {agentState === 'working' && (
+          <div className="flex justify-start">
+            <div
+              className="px-3 py-2 rounded-xl text-sm"
+              style={{ background: 'rgba(255, 255, 255, 0.1)', color: 'white' }}
+            >
+              <span className="inline-flex gap-1">
+                <span className="animate-bounce">.</span>
+                <span className="animate-bounce" style={{ animationDelay: '0.1s' }}>.</span>
+                <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>.</span>
+              </span>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Status bar */}
+      {getStatusText() && (
+        <div className="px-4 py-1 text-xs text-white/40">
+          {getStatusText()}
+        </div>
+      )}
 
       {/* Input */}
       <div
@@ -184,8 +300,9 @@ export function ChatWindow({
             value={inputValue}
             onChange={e => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            className="flex-1 px-3 py-2 rounded-lg text-sm text-white placeholder-white/40 outline-none"
+            placeholder={agentState === 'ready' ? 'Type a message...' : 'Waiting...'}
+            disabled={agentState !== 'ready'}
+            className="flex-1 px-3 py-2 rounded-lg text-sm text-white placeholder-white/40 outline-none disabled:opacity-50"
             style={{
               background: 'rgba(255, 255, 255, 0.1)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -193,7 +310,8 @@ export function ChatWindow({
           />
           <button
             onClick={handleSend}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            disabled={agentState !== 'ready'}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             style={{
               background: `${color}88`,
               color: 'white',
