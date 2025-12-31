@@ -160,8 +160,8 @@ interface UseSelectableOptions {
 
 export function useSelectable({
   id,
-  getPosition,
-  size,
+  getPosition: _getPosition,
+  size: _size,
   isSelected,
   onToggleSelection,
 }: UseSelectableOptions) {

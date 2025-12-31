@@ -6,10 +6,9 @@ const TERMINAL_HEIGHT = 300
 
 interface TerminalProps {
   isVisible?: boolean
-  onClose?: () => void
 }
 
-export function Terminal({ isVisible = true, onClose }: TerminalProps) {
+export function Terminal({ isVisible = true }: TerminalProps) {
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<Array<{ type: 'input' | 'output'; text: string }>>([
     { type: 'output', text: 'Welcome to Gekto Terminal v1.0.0' },

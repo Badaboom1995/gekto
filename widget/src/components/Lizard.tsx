@@ -1,54 +1,43 @@
-import { useEffect, useState } from 'react'
-import { TriangleLizard3D } from './TriangleLizard3D'
+import { useEffect, useState, useRef } from 'react'
+import { LizardAvatar } from './LizardAvatar'
+import { LizardMenu } from './LizardMenu'
 import { ChatWindow } from './ChatWindow'
-import { RadialMenu } from './RadialMenu'
 import { useDraggable } from '../hooks/useDraggable'
 import { useCopyable } from '../hooks/useCopyable'
 import { useOrderable } from '../hooks/useOrderable'
+import { useSwarm } from '../context/SwarmContext'
 
 const LIZARD_SIZE = 90
 const CHAT_WIDTH = 350
 const CHAT_HEIGHT = 500
 
-type ChatMode = 'task' | 'plan'
-
-export interface LizardProps {
+interface LizardProps {
   id: string
   initialPosition: { x: number; y: number }
-  isChatOpen?: boolean
-  chatMode?: ChatMode
-  isLastLizard?: boolean
-  isSelected?: boolean
-  onCopy?: (position: { x: number; y: number }) => void
-  onOpenChat?: (id: string, mode: ChatMode) => void
-  onCloseChat?: (id: string) => void
-  onDelete?: (id: string) => void
-  onToggleSelection?: (id: string, addToSelection: boolean) => void
-  onRegisterPosition?: (id: string, getPosition: () => { x: number; y: number }, size: number) => void
-  onUnregisterPosition?: (id: string) => void
 }
 
-export function Lizard({
-  id,
-  initialPosition,
-  isChatOpen = false,
-  chatMode = 'task',
-  isLastLizard = false,
-  isSelected = false,
-  onCopy,
-  onOpenChat,
-  onCloseChat,
-  onDelete,
-  onToggleSelection,
-  onRegisterPosition,
-  onUnregisterPosition,
-}: LizardProps) {
+export function Lizard({ id, initialPosition }: LizardProps) {
+  const {
+    selectedIds,
+    activeChatId,
+    chatMode,
+    addLizard,
+    openChat,
+    closeChat,
+    toggleSelection,
+    registerLizard,
+    unregisterLizard,
+  } = useSwarm()
+
+  const isSelected = selectedIds.has(id)
+  const isChatOpen = activeChatId === id
+
   const [isHovered, setIsHovered] = useState(false)
   const [menuVisible, setMenuVisible] = useState(false)
   const [isShaking, setIsShaking] = useState(false)
 
   const { isCopying, copyOrigin, startCopy, endCopy } = useCopyable({
-    onCopy,
+    onCopy: addLizard,
   })
 
   const { targetPosition } = useOrderable({ id, size: LIZARD_SIZE })
@@ -78,11 +67,17 @@ export function Lizard({
   }, [targetPosition, setPosition])
 
   // Register position for rectangular selection
+  const positionRef = useRef(position)
+
   useEffect(() => {
-    const getPosition = () => position
-    onRegisterPosition?.(id, getPosition, LIZARD_SIZE)
-    return () => onUnregisterPosition?.(id)
-  }, [id, position, onRegisterPosition, onUnregisterPosition])
+    positionRef.current = position
+  }, [position])
+
+  useEffect(() => {
+    const getPosition = () => positionRef.current
+    registerLizard(id, getPosition, LIZARD_SIZE)
+    return () => unregisterLizard(id)
+  }, [id, registerLizard, unregisterLizard])
 
   // Hide menu immediately when conditions change
   const shouldShowMenu = isHovered && !isDragging && !isChatOpen
@@ -99,53 +94,18 @@ export function Lizard({
 
   const handleClick = (e: React.MouseEvent) => {
     if (!hasMoved()) {
-      // Shift+click toggles selection
       if (e.shiftKey) {
-        onToggleSelection?.(id, true)
+        toggleSelection(id, true)
         return
       }
-      // Default action: open task chat
-      onOpenChat?.(id, 'task')
+      openChat(id, 'task')
     }
   }
 
-  const menuItems = [
-    {
-      id: 'task',
-      icon: '💬',
-      label: 'Task',
-      onClick: () => {
-        onOpenChat?.(id, 'task')
-        setMenuVisible(false)
-      },
-    },
-    {
-      id: 'plan',
-      icon: '📋',
-      label: 'Plan',
-      onClick: () => {
-        onOpenChat?.(id, 'plan')
-        setMenuVisible(false)
-      },
-    },
-    {
-      id: 'delete',
-      icon: '🗑',
-      label: 'Delete',
-      separated: true,
-      danger: true,
-      onClick: () => {
-        if (isLastLizard) {
-          setMenuVisible(false)
-          setIsShaking(true)
-          setTimeout(() => setIsShaking(false), 500)
-        } else {
-          onDelete?.(id)
-          setMenuVisible(false)
-        }
-      },
-    },
-  ]
+  const handleShake = () => {
+    setIsShaking(true)
+    setTimeout(() => setIsShaking(false), 500)
+  }
 
   return (
     <>
@@ -157,9 +117,9 @@ export function Lizard({
             left: copyOrigin.x,
             top: copyOrigin.y,
             zIndex: 1000,
-                      }}
+          }}
         >
-          <TriangleLizard3D size={LIZARD_SIZE} followMouse={false} skinColor='#BFFF6B' detailColor='#A8F15A' eyeColor='black' />
+          <LizardAvatar size={LIZARD_SIZE} followMouse={false} />
         </div>
       )}
 
@@ -181,7 +141,7 @@ export function Lizard({
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        {/* Invisible hover extension to the left for menu - only when menu visible */}
+        {/* Invisible hover extension to the left for menu */}
         {menuVisible && (
           <div
             className="absolute"
@@ -194,28 +154,14 @@ export function Lizard({
           />
         )}
 
-        <div
-          style={{
-            animation: isShaking ? 'shake 0.5s ease-in-out' : 'none',
-          }}
-        >
-          <style>{`
-            @keyframes shake {
-              0%, 100% { transform: rotate(0deg); }
-              20% { transform: rotate(-15deg); }
-              40% { transform: rotate(12deg); }
-              60% { transform: rotate(-8deg); }
-              80% { transform: rotate(5deg); }
-            }
-          `}</style>
-          <TriangleLizard3D size={LIZARD_SIZE} followMouse={!isShaking} skinColor='#BFFF6B' detailColor='#A8F15A' eyeColor='black' />
-        </div>
+        <LizardAvatar size={LIZARD_SIZE} isShaking={isShaking} />
 
-        {/* Radial Menu */}
-        <RadialMenu
-          items={menuItems}
+        <LizardMenu
+          lizardId={id}
           isVisible={menuVisible}
           size={LIZARD_SIZE}
+          onHide={() => setMenuVisible(false)}
+          onShake={handleShake}
         />
       </div>
 
@@ -223,6 +169,7 @@ export function Lizard({
       {isChatOpen && (
         <div
           className="fixed"
+          data-swarm-ui
           style={{
             left: position.x + LIZARD_SIZE - CHAT_WIDTH,
             top: position.y - CHAT_HEIGHT + 60,
@@ -231,7 +178,7 @@ export function Lizard({
         >
           <ChatWindow
             title={chatMode === 'plan' ? 'Plan Mode' : 'Gekto Chat'}
-            onClose={() => onCloseChat?.(id)}
+            onClose={closeChat}
           />
         </div>
       )}
