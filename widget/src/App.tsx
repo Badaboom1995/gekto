@@ -9,7 +9,7 @@ function App() {
   const initialLizards = [
     { id: '1', initialPosition: { x: window.innerWidth - LIZARD_SIZE - 30, y: window.innerHeight - LIZARD_SIZE - 30 } }
   ]
-
+  
   const { ref, position, isDragging, handlers } = useDraggable({
     initialPosition: {
       x: (window.innerWidth - TERMINAL_WIDTH) / 2,
