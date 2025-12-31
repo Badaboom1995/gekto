@@ -8,8 +8,8 @@ import { useOrderable } from '../hooks/useOrderable'
 import { useSwarm } from '../context/SwarmContext'
 
 const LIZARD_SIZE = 90
-const CHAT_WIDTH = 350
-const CHAT_HEIGHT = 500
+const CHAT_WIDTH = 1200
+const CHAT_HEIGHT = 600
 
 interface LizardProps {
   id: string
@@ -165,14 +165,14 @@ export function Lizard({ id, initialPosition }: LizardProps) {
         />
       </div>
 
-      {/* Chat Window - positioned above lizard */}
+      {/* Chat Window - positioned to the left of lizard */}
       {isChatOpen && (
         <div
           className="fixed"
           data-swarm-ui
           style={{
-            left: position.x + LIZARD_SIZE - CHAT_WIDTH,
-            top: position.y - CHAT_HEIGHT + 60,
+            left: position.x - CHAT_WIDTH - 20,
+            top: position.y + LIZARD_SIZE / 2 - CHAT_HEIGHT / 2,
             zIndex: 1002,
           }}
         >

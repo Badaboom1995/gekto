@@ -30,12 +30,12 @@ function App() {
           zIndex: 900,
         }}
       > 
-        <XTerminal
+        {/* <XTerminal
           width={TERMINAL_WIDTH}
           height={TERMINAL_HEIGHT}
           onTitleBarMouseDown={handlers.onMouseDown}
           isDragging={isDragging}
-        />
+        /> */}
      </div>
     </>
   )

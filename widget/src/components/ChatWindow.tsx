@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import { Terminal } from '@xterm/xterm'
+import '@xterm/xterm/css/xterm.css'
 
 interface Message {
   id: string
@@ -7,7 +9,7 @@ interface Message {
   timestamp: Date
 }
 
-type AgentState = 'loading' | 'ready' | 'working' | 'waiting_input' | 'completed' | 'error'
+type AgentState = 'loading' | 'ready' | 'working' | 'error'
 
 interface ChatWindowProps {
   title?: string
@@ -15,14 +17,19 @@ interface ChatWindowProps {
   minSize?: { width: number; height: number }
   color?: string
   onClose?: () => void
+  showTerminal?: boolean // Debug mode to show terminal
 }
+
+// System prompt to inject
+const SYSTEM_PROMPT = `You are a helpful coding assistant. Be concise and direct.`
 
 export function ChatWindow({
   title = 'Gekto Chat',
-  initialSize = { width: 350, height: 450 },
-  minSize = { width: 280, height: 300 },
+  initialSize = { width: 1200, height: 600 },
+  minSize = { width: 800, height: 400 },
   color = 'rgba(255, 255, 255, 0.5)',
   onClose,
+  showTerminal = true, // DEBUG: show terminal by default
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -32,67 +39,185 @@ export function ChatWindow({
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const terminalRef = useRef<HTMLDivElement>(null)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
-  const wsRef = useRef<WebSocket | null>(null)
 
-  // Connect to agent WebSocket
+  const termRef = useRef<Terminal | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+  const outputBufferRef = useRef<string>('')
+  const isFirstPromptRef = useRef(true)
+  const pendingMessageRef = useRef<string | null>(null)
+  const agentStateRef = useRef<AgentState>('loading')
+
+  // Strip ANSI escape codes
+  const stripAnsi = (text: string): string => {
+    return text
+      .replace(/\x1b\[[0-9;]*m/g, '')
+      .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+      .replace(/\x1b\][^\x07]*\x07/g, '') // OSC sequences
+      .replace(/[\x00-\x09\x0b-\x0c\x0e-\x1f]/g, '') // Control chars except \n \r
+  }
+
+  // Extract Claude's actual response from terminal output
+  const extractResponse = (buffer: string): string => {
+    // Remove the echoed input
+    let response = buffer
+
+    // Remove prompt characters and leading/trailing whitespace
+    response = response
+      .replace(/^[\s\S]*?(?:>|❯)\s*/m, '') // Remove everything up to and including first prompt
+      .replace(/(?:>|❯)\s*$/m, '') // Remove trailing prompt
+      .replace(/\r/g, '')
+      .trim()
+
+    // Remove any lines that look like our input echo
+    const lines = response.split('\n')
+    const filteredLines = lines.filter(line => {
+      const trimmed = line.trim()
+      // Skip empty lines at start
+      if (!trimmed) return true
+      // Skip lines that look like input echo (starts with what we sent)
+      if (pendingMessageRef.current && trimmed.startsWith(pendingMessageRef.current.substring(0, 20))) {
+        return false
+      }
+      return true
+    })
+
+    return filteredLines.join('\n').trim()
+  }
+
+  // Initialize hidden terminal with Claude Code
   useEffect(() => {
+    if (!terminalRef.current || termRef.current) return
+
+    // Guard against React strict mode double-mount
+    let isMounted = true
+
+    const term = new Terminal({
+      cols: 120,
+      rows: 40,
+    })
+
+    term.open(terminalRef.current)
+    termRef.current = term
+
+    // Handle terminal output - detect prompts and responses
+    const handleTerminalOutput = (data: string) => {
+      if (!isMounted) return
+
+      const clean = stripAnsi(data)
+      const currentState = agentStateRef.current
+
+      // DEBUG: Log all output
+      console.log('[Chat] Raw:', JSON.stringify(data).substring(0, 100))
+      console.log('[Chat] Clean:', clean.substring(0, 100))
+      console.log('[Chat] State:', currentState)
+
+      // Accumulate output
+      outputBufferRef.current += clean
+
+      // Detect Claude Code ready prompt (> or ❯)
+      if ((clean.includes('>') || clean.includes('❯')) && currentState === 'loading') {
+        console.log('[Chat] Claude Code ready!')
+        agentStateRef.current = 'ready'
+        setAgentState('ready')
+        isFirstPromptRef.current = true
+        setMessages([{
+          id: '1',
+          text: 'Hi! How can I help you today?',
+          sender: 'bot',
+          timestamp: new Date(),
+        }])
+        outputBufferRef.current = ''
+      }
+
+      // Detect when Claude finishes responding (prompt returns)
+      if ((clean.includes('>') || clean.includes('❯')) && currentState === 'working') {
+        console.log('[Chat] Claude finished responding')
+        console.log('[Chat] Full buffer:', outputBufferRef.current)
+
+        const response = extractResponse(outputBufferRef.current)
+        console.log('[Chat] Extracted response:', response)
+
+        if (response) {
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            text: response,
+            sender: 'bot',
+            timestamp: new Date(),
+          }])
+        }
+
+        outputBufferRef.current = ''
+        agentStateRef.current = 'ready'
+        setAgentState('ready')
+      }
+    }
+
+    // Connect to terminal WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/__gekto/agent`)
+    const ws = new WebSocket(`${protocol}//${window.location.host}/__gekto/terminal`)
     wsRef.current = ws
 
     ws.onopen = () => {
-      console.log('[Chat] Connected to agent')
+      console.log('[Chat] Terminal connected')
+      ws.send(JSON.stringify({ type: 'resize', cols: 120, rows: 40 }))
+      console.log('[Chat] Sent resize, waiting before starting Claude Code...')
     }
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-
-        switch (msg.type) {
-          case 'state':
-            setAgentState(msg.state)
-            if (msg.state === 'ready' && messages.length === 0) {
-              setMessages([{
-                id: '1',
-                text: 'Claude Code is ready! How can I help you?',
-                sender: 'bot',
-                timestamp: new Date(),
-              }])
-            }
-            break
-
-          case 'response':
-            // Clean response from server
-            if (msg.text) {
-              setMessages(prev => [...prev, {
-                id: Date.now().toString(),
-                text: msg.text,
-                sender: 'bot',
-                timestamp: new Date(),
-              }])
-            }
-            break
+        if (msg.type === 'output') {
+          term.write(msg.data)
+          handleTerminalOutput(msg.data)
         }
-      } catch (err) {
-        console.error('[Chat] Failed to parse message:', err)
+      } catch {
+        term.write(event.data)
+        handleTerminalOutput(event.data)
       }
     }
 
-    ws.onclose = () => {
-      console.log('[Chat] Disconnected from agent')
-      setAgentState('error')
+    ws.onclose = (event) => {
+      console.log('[Chat] Terminal disconnected, code:', event.code, 'reason:', event.reason)
+      if (isMounted) {
+        agentStateRef.current = 'error'
+        setAgentState('error')
+      }
     }
 
-    ws.onerror = () => {
-      console.error('[Chat] WebSocket error')
-      setAgentState('error')
+    ws.onerror = (error) => {
+      console.error('[Chat] WebSocket error:', error)
     }
+
+    // Start Claude Code after connection
+    setTimeout(() => {
+      if (!isMounted) {
+        console.log('[Chat] Component unmounted, skipping Claude start')
+        return
+      }
+      console.log('[Chat] Attempting to start Claude Code, ws state:', ws.readyState)
+      if (ws.readyState === WebSocket.OPEN) {
+        console.log('[Chat] Sending claude command...')
+        ws.send(JSON.stringify({ type: 'input', data: 'claude\r' }))
+      } else {
+        console.log('[Chat] WebSocket not open, cannot start Claude')
+      }
+    }, 500)
 
     return () => {
+      isMounted = false
       ws.close()
+      term.dispose()
+      termRef.current = null
     }
   }, [])
+
+  // Helper to update both state and ref
+  const updateAgentState = (newState: AgentState) => {
+    agentStateRef.current = newState
+    setAgentState(newState)
+  }
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -141,21 +266,42 @@ export function ChatWindow({
   const handleSend = () => {
     if (!inputValue.trim() || agentState !== 'ready') return
 
+    const userMessage = inputValue.trim()
+
     const newMessage: Message = {
       id: Date.now().toString(),
-      text: inputValue.trim(),
+      text: userMessage,
       sender: 'user',
       timestamp: new Date(),
     }
 
     setMessages(prev => [...prev, newMessage])
+    updateAgentState('working')
+    outputBufferRef.current = ''
+    pendingMessageRef.current = userMessage
 
-    // Send to agent
+    // Send to Claude Code via terminal
+    // For first message, include system prompt
+    let messageToSend = userMessage
+    if (isFirstPromptRef.current) {
+      messageToSend = `${SYSTEM_PROMPT}\n\nUser request: ${userMessage}`
+      isFirstPromptRef.current = false
+    }
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      // Send message character by character, then Enter
+      // Claude Code needs the input followed by carriage return
       wsRef.current.send(JSON.stringify({
-        type: 'chat',
-        content: inputValue.trim(),
+        type: 'input',
+        data: messageToSend
       }))
+      // Send Enter key separately to submit
+      setTimeout(() => {
+        wsRef.current?.send(JSON.stringify({
+          type: 'input',
+          data: '\r'
+        }))
+      }, 100)
     }
 
     setInputValue('')
@@ -172,7 +318,6 @@ export function ChatWindow({
     switch (agentState) {
       case 'loading': return 'Starting Claude Code...'
       case 'working': return 'Thinking...'
-      case 'waiting_input': return 'Waiting for permission...'
       case 'error': return 'Connection error'
       default: return ''
     }
@@ -181,7 +326,7 @@ export function ChatWindow({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col"
+      className="flex relative"
       style={{
         width: size.width,
         height: size.height,
@@ -197,7 +342,39 @@ export function ChatWindow({
         `,
       }}
     >
-      {/* Header */}
+      {/* Debug terminal for Claude Code - left side */}
+      {showTerminal && (
+        <div
+          ref={terminalRef}
+          style={{
+            width: 600,
+            height: '100%',
+            background: '#000',
+            borderRight: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: '16px 0 0 16px',
+            overflow: 'hidden',
+          }}
+        />
+      )}
+      {/* Hidden terminal when not debugging */}
+      {!showTerminal && (
+        <div
+          ref={terminalRef}
+          style={{
+            position: 'absolute',
+            left: -9999,
+            top: -9999,
+            width: 1,
+            height: 1,
+            opacity: 0,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
+      {/* Chat section - right side */}
+      <div className="flex flex-col flex-1" style={{ minWidth: 0 }}>
+        {/* Header */}
       <div
         className="flex items-center justify-between px-4 py-3"
         style={{
@@ -320,6 +497,7 @@ export function ChatWindow({
             Send
           </button>
         </div>
+      </div>
       </div>
 
       {/* Resize handle */}
