@@ -1,28 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
-
-interface Message {
-  id: string
-  text: string
-  sender: 'user' | 'bot'
-  timestamp: Date
-  isTerminal?: boolean
-}
-
-interface ToolStatus {
-  tool: string
-  status: 'running' | 'completed'
-  input?: string
-}
-
-interface PermissionRequest {
-  tool: string
-  input?: string
-  description?: string
-}
-
-type AgentState = 'ready' | 'working' | 'error'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
 
 interface ChatWindowProps {
+  lizardId: string
   title?: string
   initialSize?: { width: number; height: number }
   minSize?: { width: number; height: number }
@@ -31,195 +11,92 @@ interface ChatWindowProps {
 }
 
 export function ChatWindow({
+  lizardId,
   title = 'Gekto Chat',
   initialSize = { width: 400, height: 500 },
   minSize = { width: 300, height: 350 },
   color = 'rgba(255, 255, 255, 0.5)',
   onClose,
 }: ChatWindowProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: 'Hi! How can I help you today?',
-      sender: 'bot',
-      timestamp: new Date(),
-    }
-  ])
+  const [messages, setMessages] = useState<Message[]>([])
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [size, setSize] = useState(initialSize)
   const [isResizing, setIsResizing] = useState(false)
-  const [agentState, setAgentState] = useState<AgentState>('ready')
-  const [currentTool, setCurrentTool] = useState<ToolStatus | null>(null)
-  const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null)
-  const [workingDir, setWorkingDir] = useState<string>('')
-  const [terminalMode, setTerminalMode] = useState(false)
-  const [terminalOutput, setTerminalOutput] = useState('')
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
-  const wsRef = useRef<WebSocket | null>(null)
-  const terminalWsRef = useRef<WebSocket | null>(null)
 
-  // Connect to agent WebSocket
-  useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/__gekto/agent`)
-    wsRef.current = ws
+  const {
+    sendMessage,
+    respondToPermission,
+    getLizardState,
+    getCurrentTool,
+    getPermissionRequest,
+    getWorkingDir,
+  } = useAgent()
 
-    ws.onopen = () => {
-      console.log('[Chat] Connected to agent')
-    }
+  const agentState = getLizardState(lizardId)
+  const currentTool = getCurrentTool(lizardId)
+  const permissionRequest = getPermissionRequest(lizardId)
+  const workingDir = getWorkingDir()
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data)
-        console.log('[Chat] Received:', msg.type)
-        console.log('[Chat] Received:', msg)
-
-        switch (msg.type) {
-          case 'state':
-            // Only update to 'working' or 'ready', ignore initial 'ready' that server sends
-            if (msg.state === 'working') {
-              setAgentState('working')
-            } else if (msg.state === 'ready') {
-              setAgentState('ready')
-              setCurrentTool(null)
-            }
-            break
-
-          case 'tool':
-            setCurrentTool({
-              tool: msg.tool,
-              status: msg.status,
-              input: msg.input,
-            })
-            break
-
-          case 'permission':
-            setPermissionRequest({
-              tool: msg.tool,
-              input: msg.input,
-              description: msg.description,
-            })
-            break
-
-          case 'info':
-            if (msg.workingDir) {
-              setWorkingDir(msg.workingDir)
-            }
-            break
-
-          case 'response':
-            setMessages(prev => [...prev, {
-              id: Date.now().toString(),
-              text: msg.text,
-              sender: 'bot',
-              timestamp: new Date(),
-            }])
-            setAgentState('ready')
-            setCurrentTool(null)
-            setPermissionRequest(null)
-            break
-
-          case 'error':
-            setMessages(prev => [...prev, {
-              id: Date.now().toString(),
-              text: `Error: ${msg.message}`,
-              sender: 'bot',
-              timestamp: new Date(),
-            }])
-            setAgentState('ready')
-            setCurrentTool(null)
-            setPermissionRequest(null)
-            break
-        }
-      } catch (err) {
-        console.error('[Chat] Failed to parse message:', err)
-      }
-    }
-
-    ws.onclose = () => {
-      console.log('[Chat] Disconnected')
-      setAgentState('error')
-    }
-
-    ws.onerror = (error) => {
-      console.error('[Chat] WebSocket error:', error)
-      setAgentState('error')
-    }
-
-    return () => {
-      ws.close()
-    }
+  // Handle incoming messages from agent
+  const handleAgentMessage = useCallback((message: Message) => {
+    setMessages(prev => [...prev, message])
   }, [])
 
-  // Connect to terminal WebSocket
+  // Register as message listener
+  useAgentMessageListener(lizardId, handleAgentMessage)
+
+  // Load chat history on mount
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/__gekto/terminal`)
-    terminalWsRef.current = ws
-
-    ws.onopen = () => {
-      console.log('[Chat] Terminal connected')
-      ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }))
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data)
-        if (msg.type === 'output') {
-          setTerminalOutput(prev => prev + msg.data)
-        }
-      } catch {
-        // Raw output
-        setTerminalOutput(prev => prev + event.data)
-      }
-    }
-
-    ws.onclose = () => {
-      console.log('[Chat] Terminal disconnected')
-    }
-
-    return () => {
-      ws.close()
-    }
-  }, [])
-
-  // Process terminal output into messages
-  useEffect(() => {
-    if (terminalOutput) {
-      // Strip ANSI codes and clean up
-      const clean = terminalOutput
-        .replace(/\x1b\[[0-9;]*m/g, '')
-        .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
-        .replace(/\x1b\][^\x07]*\x07/g, '')
-        .replace(/\r/g, '')
-        .trim()
-
-      if (clean) {
-        setMessages(prev => {
-          // Check if last message is a terminal response we should append to
-          const last = prev[prev.length - 1]
-          if (last?.isTerminal && last.sender === 'bot') {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, text: clean }
-            ]
-          }
-          return [...prev, {
-            id: Date.now().toString(),
-            text: clean,
+    fetch(`/__gekto/api/chats/${lizardId}`)
+      .then(res => res.json())
+      .then((saved: Array<{ id: string; text: string; sender: 'user' | 'bot'; timestamp: string; isTerminal?: boolean }>) => {
+        if (saved && saved.length > 0) {
+          setMessages(saved.map(m => ({ ...m, timestamp: new Date(m.timestamp) })))
+        } else {
+          // Default greeting if no history
+          setMessages([{
+            id: '1',
+            text: 'Hi! How can I help you today?',
             sender: 'bot',
             timestamp: new Date(),
-            isTerminal: true,
-          }]
-        })
-        setTerminalOutput('')
-        setAgentState('ready')
-      }
-    }
-  }, [terminalOutput])
+          }])
+        }
+        setHistoryLoaded(true)
+      })
+      .catch(() => {
+        setMessages([{
+          id: '1',
+          text: 'Hi! How can I help you today?',
+          sender: 'bot',
+          timestamp: new Date(),
+        }])
+        setHistoryLoaded(true)
+      })
+  }, [lizardId])
+
+  // Save chat history when messages change
+  useEffect(() => {
+    if (!historyLoaded || messages.length === 0) return
+
+    const toSave = messages.map(m => ({
+      id: m.id,
+      text: m.text,
+      sender: m.sender,
+      timestamp: m.timestamp.toISOString(),
+      isTerminal: m.isTerminal,
+    }))
+
+    fetch(`/__gekto/api/chats/${lizardId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(toSave),
+    }).catch(err => console.error('[Chat] Failed to save history:', err))
+  }, [messages, lizardId, historyLoaded])
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -270,33 +147,17 @@ export function ChatWindow({
 
     const userMessage = inputValue.trim()
 
-    setMessages(prev => [...prev, {
+    // Add user message to local state
+    const newMessage: Message = {
       id: Date.now().toString(),
-      text: terminalMode ? `$ ${userMessage}` : userMessage,
+      text: userMessage,
       sender: 'user',
       timestamp: new Date(),
-      isTerminal: terminalMode,
-    }])
-
-    setAgentState('working')
-
-    if (terminalMode) {
-      // Send to terminal
-      if (terminalWsRef.current?.readyState === WebSocket.OPEN) {
-        terminalWsRef.current.send(JSON.stringify({
-          type: 'input',
-          data: userMessage + '\r'
-        }))
-      }
-    } else {
-      // Send to agent
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          type: 'chat',
-          content: userMessage,
-        }))
-      }
     }
+    setMessages(prev => [...prev, newMessage])
+
+    // Send to agent
+    sendMessage(lizardId, userMessage)
 
     setInputValue('')
   }
@@ -309,13 +170,7 @@ export function ChatWindow({
   }
 
   const handlePermissionResponse = (approved: boolean) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'permission_response',
-        approved,
-      }))
-    }
-    setPermissionRequest(null)
+    respondToPermission(approved)
   }
 
   const getStatusText = () => {
@@ -338,7 +193,7 @@ export function ChatWindow({
       style={{
         width: size.width,
         height: size.height,
-        background: `linear-gradient(135deg, rgba(0, 0, 0, 0.85), rgba(10, 10, 15, 0.9))`,
+        background: `linear-gradient(135deg, rgb(35, 35, 45), rgb(45, 45, 55))`,
         backdropFilter: 'blur(12px) saturate(180%)',
         WebkitBackdropFilter: 'blur(12px) saturate(180%)',
         border: '1px solid rgba(255, 255, 255, 0.18)',
@@ -515,34 +370,6 @@ export function ChatWindow({
           borderTop: '1px solid rgba(255, 255, 255, 0.1)',
         }}
       >
-        {/* Terminal mode toggle */}
-        <div className="flex items-center gap-2 mb-2">
-          <button
-            onClick={() => setTerminalMode(!terminalMode)}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
-              terminalMode
-                ? 'bg-green-600/30 text-green-400 border border-green-500/50'
-                : 'bg-white/10 text-white/60 hover:text-white/80 border border-transparent'
-            }`}
-            title={terminalMode ? 'Switch to Chat mode' : 'Switch to Terminal mode'}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
-            <span>{terminalMode ? 'Terminal' : 'Chat'}</span>
-          </button>
-        </div>
-
         <div className="flex gap-2">
           <input
             type="text"
@@ -552,17 +379,13 @@ export function ChatWindow({
             placeholder={
               agentState !== 'ready'
                 ? 'Waiting...'
-                : terminalMode
-                  ? 'Enter command...'
-                  : 'Type a message...'
+                : 'Type a message...'
             }
             disabled={agentState !== 'ready'}
-            className={`flex-1 px-3 py-2 rounded-lg text-sm text-white placeholder-white/40 outline-none disabled:opacity-50 ${
-              terminalMode ? 'font-mono' : ''
-            }`}
+            className="flex-1 px-3 py-2 rounded-lg text-sm text-white placeholder-white/40 outline-none disabled:opacity-50"
             style={{
-              background: terminalMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255, 255, 255, 0.1)',
-              border: terminalMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'rgba(255, 255, 255, 0.1)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
             }}
           />
           <button
@@ -570,11 +393,11 @@ export function ChatWindow({
             disabled={agentState !== 'ready'}
             className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             style={{
-              background: terminalMode ? 'rgba(34, 197, 94, 0.5)' : `${color}88`,
+              background: `${color}88`,
               color: 'white',
             }}
           >
-            {terminalMode ? 'Run' : 'Send'}
+            Send
           </button>
         </div>
       </div>

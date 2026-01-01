@@ -43,8 +43,12 @@ export function RadialMenu({
         }}
         onMouseEnter={() => setHoveredItem(item.id)}
         onMouseLeave={() => setHoveredItem(null)}
+        onMouseDown={(e) => {
+          e.stopPropagation()
+        }}
         onClick={(e) => {
           e.stopPropagation()
+          e.preventDefault()
           item.onClick()
         }}
       >
@@ -95,6 +99,7 @@ export function RadialMenu({
 
   return (
     <div
+      data-radial-menu
       className="absolute pointer-events-none"
       style={{
         right: size + 15,

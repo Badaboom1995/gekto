@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url'
 import { parseArgs } from 'util'
 import { setupTerminalWebSocket } from './terminal.js'
 import { setupAgentWebSocket } from './agents/agentWebSocket.js'
+import { initStore, getData, setData } from './store.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -43,10 +44,13 @@ if (!args.target && !process.env.TARGET_PORT && !process.env.GEKTO_DEV) {
 }
 
 // Configuration
-const PROXY_PORT = parseInt(args.port || process.env.PORT || '3200')
-const TARGET_PORT = parseInt(args.target || process.env.TARGET_PORT || '5173')
-const WIDGET_PORT = parseInt(process.env.WIDGET_PORT || '5174')
+const PROXY_PORT = parseInt(String(args.port ?? process.env.PORT ?? '3200'), 10)
+const TARGET_PORT = parseInt(String(args.target ?? process.env.TARGET_PORT ?? '5173'), 10)
+const WIDGET_PORT = parseInt(process.env.WIDGET_PORT ?? '5174', 10)
 const DEV_MODE = process.env.GEKTO_DEV === '1'
+
+// Initialize store
+initStore()
 
 // Widget paths
 const WIDGET_DIST_PATH = path.resolve(__dirname, '../../widget/dist')
@@ -85,6 +89,68 @@ function getInjectionScript(): string {
 
 const server = http.createServer((req, res) => {
   const url = req.url || '/'
+
+  // API: Get lizards (must be before widget handling)
+  if (url === '/__gekto/api/lizards' && req.method === 'GET') {
+    const lizards = getData<Array<{ id: string; position: { x: number; y: number } }>>('lizards') || []
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(lizards))
+    return
+  }
+
+  // API: Save lizards (must be before widget handling)
+  if (url === '/__gekto/api/lizards' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const lizards = JSON.parse(body)
+        console.log('[Store] Saving lizards:', JSON.stringify(lizards))
+        setData('lizards', lizards)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true }))
+      } catch (err) {
+        console.error('[Store] Failed to save lizards:', err)
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid JSON' }))
+      }
+    })
+    return
+  }
+
+  // API: Get chat history for a lizard
+  const chatGetMatch = url.match(/^\/__gekto\/api\/chats\/([^/]+)$/)
+  if (chatGetMatch && req.method === 'GET') {
+    const lizardId = chatGetMatch[1]
+    const allChats = getData<Record<string, Array<{ id: string; text: string; sender: string; timestamp: string }>>>('chats') || {}
+    const messages = allChats[lizardId] || []
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(messages))
+    return
+  }
+
+  // API: Save chat history for a lizard
+  const chatPostMatch = url.match(/^\/__gekto\/api\/chats\/([^/]+)$/)
+  if (chatPostMatch && req.method === 'POST') {
+    const lizardId = chatPostMatch[1]
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const messages = JSON.parse(body)
+        const allChats = getData<Record<string, unknown>>('chats') || {}
+        allChats[lizardId] = messages
+        setData('chats', allChats)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true }))
+      } catch (err) {
+        console.error('[Store] Failed to save chat:', err)
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid JSON' }))
+      }
+    })
+    return
+  }
 
   // Serve widget assets - proxy to widget dev server or serve from dist
   if (url.startsWith('/__gekto/')) {

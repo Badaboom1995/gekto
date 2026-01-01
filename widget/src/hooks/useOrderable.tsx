@@ -27,6 +27,7 @@ interface OrderableContainerProps {
   arrangement?: Arrangement
   corner?: Corner
   gap?: number
+  onArrange?: () => void
 }
 
 export function OrderableContainer({
@@ -35,6 +36,7 @@ export function OrderableContainer({
   arrangement = 'grid',
   corner = 'bottom-right',
   gap = -30,
+  onArrange,
 }: OrderableContainerProps) {
   const itemsRef = useRef<Map<string, OrderableItem>>(new Map())
 
@@ -123,12 +125,16 @@ export function OrderableContainer({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === hotkey) {
         arrange()
+        // Defer callback to allow position refs to update
+        if (onArrange) {
+          setTimeout(onArrange, 50)
+        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [hotkey, arrange])
+  }, [hotkey, arrange, onArrange])
 
   return (
     <OrderableContext.Provider value={{ register, unregister }}>

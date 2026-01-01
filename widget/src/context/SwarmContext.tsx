@@ -7,9 +7,14 @@ interface Position {
   y: number
 }
 
+interface LizardSettings {
+  color: string
+}
+
 interface LizardData {
   id: string
   initialPosition: Position
+  settings?: LizardSettings
 }
 
 interface SelectableItem {
@@ -29,9 +34,13 @@ interface SwarmContextValue {
   activeChatId: string | null
   chatMode: ChatMode
 
+  // Default settings for new lizards
+  defaultSettings: LizardSettings
+
   // Actions
   addLizard: (position: Position) => void
   deleteLizard: (id: string) => void
+  updateLizardColor: (id: string, color: string) => void
   openChat: (id: string, mode: ChatMode) => void
   closeChat: () => void
   toggleSelection: (id: string, addToSelection: boolean) => void
@@ -40,6 +49,9 @@ interface SwarmContextValue {
   // Position registration for rectangular selection
   registerLizard: (id: string, getPosition: () => Position, size: number) => void
   unregisterLizard: (id: string) => void
+
+  // Persistence
+  saveLizards: () => void
 }
 
 const SwarmContext = createContext<SwarmContextValue | null>(null)
@@ -60,9 +72,66 @@ export function useSelectionRect() {
 interface SwarmProviderProps {
   children: ReactNode
   initialLizards: LizardData[]
+  defaultSettings?: LizardSettings
 }
 
-export function SwarmProvider({ children, initialLizards }: SwarmProviderProps) {
+const DEFAULT_SETTINGS: LizardSettings = { color: '#BFFF6B' }
+
+function parseHue(color: string): number | null {
+  // Handle HSL
+  const hslMatch = color.match(/hsl\((\d+)/)
+  if (hslMatch) return parseInt(hslMatch[1])
+  // Handle hex - convert to HSL
+  if (color.startsWith('#')) {
+    const hex = color.slice(1)
+    const r = parseInt(hex.substring(0, 2), 16) / 255
+    const g = parseInt(hex.substring(2, 4), 16) / 255
+    const b = parseInt(hex.substring(4, 6), 16) / 255
+    const max = Math.max(r, g, b), min = Math.min(r, g, b)
+    if (max === min) return 0
+    const d = max - min
+    let h = 0
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6
+    else if (max === g) h = ((b - r) / d + 2) / 6
+    else h = ((r - g) / d + 4) / 6
+    return Math.round(h * 360)
+  }
+  return null
+}
+
+function randomDistinctColor(existingColors: string[]): string {
+  const existingHues = existingColors.map(parseHue).filter((h): h is number => h !== null)
+  const MIN_HUE_DISTANCE = 30
+
+  // Try to find a hue that's far enough from all existing hues
+  let bestHue = Math.floor(Math.random() * 360)
+  let bestMinDistance = 0
+
+  for (let attempt = 0; attempt < 36; attempt++) {
+    const candidateHue = (attempt * 10 + Math.floor(Math.random() * 10)) % 360
+    let minDistance = 180
+
+    for (const existingHue of existingHues) {
+      const distance = Math.min(
+        Math.abs(candidateHue - existingHue),
+        360 - Math.abs(candidateHue - existingHue)
+      )
+      minDistance = Math.min(minDistance, distance)
+    }
+
+    if (minDistance > bestMinDistance) {
+      bestMinDistance = minDistance
+      bestHue = candidateHue
+      if (minDistance >= MIN_HUE_DISTANCE) break
+    }
+  }
+
+  const saturation = 70 + Math.floor(Math.random() * 20)
+  const lightness = 60 + Math.floor(Math.random() * 15)
+  return `hsl(${bestHue}, ${saturation}%, ${lightness}%)`
+}
+
+export function SwarmProvider({ children, initialLizards, defaultSettings = DEFAULT_SETTINGS }: SwarmProviderProps) {
   const [lizards, setLizards] = useState<LizardData[]>(initialLizards)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
@@ -194,8 +263,12 @@ export function SwarmProvider({ children, initialLizards }: SwarmProviderProps) 
   }, [])
 
   const addLizard = useCallback((position: Position) => {
-    setLizards(prev => [...prev, { id: Date.now().toString(), initialPosition: position }])
-  }, [])
+    setLizards(prev => {
+      const existingColors = prev.map(l => l.settings?.color ?? defaultSettings.color)
+      const newColor = randomDistinctColor(existingColors)
+      return [...prev, { id: Date.now().toString(), initialPosition: position, settings: { color: newColor } }]
+    })
+  }, [defaultSettings.color])
 
   const deleteLizard = useCallback((id: string) => {
     setLizards(prev => {
@@ -206,6 +279,12 @@ export function SwarmProvider({ children, initialLizards }: SwarmProviderProps) 
       setActiveChatId(null)
     }
   }, [activeChatId])
+
+  const updateLizardColor = useCallback((id: string, color: string) => {
+    setLizards(prev => prev.map(l =>
+      l.id === id ? { ...l, settings: { ...l.settings, color } } : l
+    ))
+  }, [])
 
   const openChat = useCallback((id: string, mode: ChatMode) => {
     setActiveChatId(id)
@@ -240,20 +319,67 @@ export function SwarmProvider({ children, initialLizards }: SwarmProviderProps) 
     selectableItemsRef.current.delete(id)
   }, [])
 
+  // Save lizards to server
+  const saveLizardsRef = useRef<() => void>(() => {})
+
+  const saveLizards = useCallback(() => {
+    const lizardData = lizards.map(l => {
+      const item = selectableItemsRef.current.get(l.id)
+      const position = item ? item.getPosition() : l.initialPosition
+      console.log('[Swarm] Lizard', l.id, 'position:', position, 'settings:', l.settings, 'from ref:', !!item)
+      return { id: l.id, position, settings: l.settings }
+    })
+
+    console.log('[Swarm] Saving lizards:', lizardData)
+    fetch('/__gekto/api/lizards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(lizardData),
+    })
+      .then(res => res.json())
+      .then(data => console.log('[Swarm] Save response:', data))
+      .catch(err => console.error('[Swarm] Failed to save lizards:', err))
+  }, [lizards])
+
+  saveLizardsRef.current = saveLizards
+
+  // Auto-save when lizards are added/removed (debounced)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    // Skip initial render
+    if (lizards === initialLizards) return
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      saveLizardsRef.current()
+    }, 500)
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [lizards, initialLizards])
+
   const value = useMemo<SwarmContextValue>(() => ({
     lizards,
     selectedIds,
     activeChatId,
     chatMode,
+    defaultSettings,
     addLizard,
     deleteLizard,
+    updateLizardColor,
     openChat,
     closeChat,
     toggleSelection,
     clearSelection,
     registerLizard,
     unregisterLizard,
-  }), [lizards, selectedIds, activeChatId, chatMode, addLizard, deleteLizard, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard])
+    saveLizards,
+  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, saveLizards])
 
   return (
     <SwarmContext.Provider value={value}>
@@ -278,4 +404,4 @@ function isPointInRect(point: Position, rect: { left: number; top: number; right
   return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom
 }
 
-export type { LizardData, ChatMode, Position }
+export type { LizardData, LizardSettings, ChatMode, Position }

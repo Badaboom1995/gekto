@@ -5,7 +5,7 @@ import { ChatWindow } from './ChatWindow'
 import { useDraggable } from '../hooks/useDraggable'
 import { useCopyable } from '../hooks/useCopyable'
 import { useOrderable } from '../hooks/useOrderable'
-import { useSwarm } from '../context/SwarmContext'
+import { useSwarm, type LizardSettings } from '../context/SwarmContext'
 
 const LIZARD_SIZE = 90
 const CHAT_WIDTH = 400
@@ -14,20 +14,25 @@ const CHAT_HEIGHT = 500
 interface LizardProps {
   id: string
   initialPosition: { x: number; y: number }
+  settings?: LizardSettings
 }
 
-export function Lizard({ id, initialPosition }: LizardProps) {
+export function Lizard({ id, initialPosition, settings }: LizardProps) {
   const {
     selectedIds,
     activeChatId,
     chatMode,
+    defaultSettings,
     addLizard,
     openChat,
     closeChat,
     toggleSelection,
     registerLizard,
     unregisterLizard,
+    saveLizards,
   } = useSwarm()
+
+  const color = settings?.color ?? defaultSettings.color
 
   const isSelected = selectedIds.has(id)
   const isChatOpen = activeChatId === id
@@ -50,11 +55,17 @@ export function Lizard({ id, initialPosition }: LizardProps) {
       }
       setMenuVisible(false)
     },
-    onDragEnd: (_pos, moved, isAltKey) => {
-      if (isAltKey && moved) {
-        endCopy(true)
+    onDragEnd: (pos, moved, isAltKey) => {
+      if (isAltKey && moved && copyOrigin) {
+        // Create new lizard at drop position, snap original back to origin
+        endCopy(true, pos)
+        setPosition(copyOrigin)
       } else {
         endCopy(false)
+        // Save position after drag (only if not copying - copy saves via addLizard)
+        if (moved) {
+          saveLizards()
+        }
       }
     },
   })
@@ -93,6 +104,9 @@ export function Lizard({ id, initialPosition }: LizardProps) {
   }, [shouldShowMenu])
 
   const handleClick = (e: React.MouseEvent) => {
+    // Don't open chat if clicking on menu
+    if ((e.target as HTMLElement).closest('[data-radial-menu]')) return
+
     if (!hasMoved()) {
       if (e.shiftKey) {
         toggleSelection(id, true)
@@ -119,7 +133,7 @@ export function Lizard({ id, initialPosition }: LizardProps) {
             zIndex: 1000,
           }}
         >
-          <LizardAvatar size={LIZARD_SIZE} followMouse={false} />
+          <LizardAvatar size={LIZARD_SIZE} followMouse={false} color={color} />
         </div>
       )}
 
@@ -154,7 +168,7 @@ export function Lizard({ id, initialPosition }: LizardProps) {
           />
         )}
 
-        <LizardAvatar size={LIZARD_SIZE} isShaking={isShaking} />
+        <LizardAvatar size={LIZARD_SIZE} isShaking={isShaking} color={color} />
 
         <LizardMenu
           lizardId={id}
@@ -177,6 +191,7 @@ export function Lizard({ id, initialPosition }: LizardProps) {
           }}
         >
           <ChatWindow
+            lizardId={id}
             title={chatMode === 'plan' ? 'Plan Mode' : 'Gekto Chat'}
             onClose={closeChat}
           />

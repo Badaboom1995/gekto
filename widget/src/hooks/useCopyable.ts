@@ -20,13 +20,13 @@ export function useCopyable(options: UseCopyableOptions = {}) {
     setCopyOrigin({ ...currentPosition })
   }, [])
 
-  const endCopy = useCallback((shouldCreateCopy: boolean) => {
-    if (shouldCreateCopy && copyOrigin && onCopy) {
-      onCopy(copyOrigin)
+  const endCopy = useCallback((shouldCreateCopy: boolean, dropPosition?: Position) => {
+    if (shouldCreateCopy && dropPosition && onCopy) {
+      onCopy(dropPosition)
     }
     setIsCopying(false)
     setCopyOrigin(null)
-  }, [copyOrigin, onCopy])
+  }, [onCopy])
 
   const cancelCopy = useCallback(() => {
     setIsCopying(false)
