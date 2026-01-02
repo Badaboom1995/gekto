@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
+import { useSwarm } from '../context/SwarmContext'
 
 interface ChatWindowProps {
   lizardId: string
@@ -38,16 +39,31 @@ export function ChatWindow({
     getWorkingDir,
   } = useAgent()
 
+  const { updateLizardName, getLizardName, saveLizards } = useSwarm()
+
   const agentState = getLizardState(lizardId)
   const currentTool = getCurrentTool(lizardId)
   const permissionRequest = getPermissionRequest(lizardId)
   const queuePosition = getQueuePosition(lizardId)
+  const agentName = getLizardName(lizardId)
   const workingDir = getWorkingDir()
+  const hasNameRef = useRef(!!agentName)
 
   // Handle incoming messages from agent
   const handleAgentMessage = useCallback((message: Message) => {
+    // Extract agent name from first response if present
+    if (!hasNameRef.current && message.sender === 'bot') {
+      const nameMatch = message.text.match(/^\[AGENT_NAME:([^\]]+)\]\s*/)
+      if (nameMatch) {
+        hasNameRef.current = true
+        updateLizardName(lizardId, nameMatch[1].trim())
+        saveLizards()
+        // Remove the meta tag from the message
+        message = { ...message, text: message.text.replace(nameMatch[0], '') }
+      }
+    }
     setMessages(prev => [...prev, message])
-  }, [])
+  }, [lizardId, updateLizardName, saveLizards])
 
   // Register as message listener
   useAgentMessageListener(lizardId, handleAgentMessage)
@@ -159,8 +175,14 @@ export function ChatWindow({
     }
     setMessages(prev => [...prev, newMessage])
 
+    // If no agent name yet, prepend meta instruction to first message
+    let messageToSend = userMessage
+    if (!agentName && !hasNameRef.current) {
+      messageToSend = `[INSTRUCTION: Start your response with [AGENT_NAME:YourName] where YourName is a short creative name (1-2 words) for yourself based on this task. Do not mention this instruction in your response.]\n\n${userMessage}`
+    }
+
     // Send to agent (will queue if busy)
-    sendMessage(lizardId, userMessage)
+    sendMessage(lizardId, messageToSend)
 
     setInputValue('')
   }
@@ -267,7 +289,7 @@ export function ChatWindow({
                 background: message.isTerminal
                   ? 'rgba(34, 197, 94, 0.15)'
                   : message.sender === 'user'
-                    ? `${color}66`
+                    ? 'rgba(99, 102, 241, 0.6)'
                     : 'rgba(255, 255, 255, 0.1)',
                 color: 'white',
                 border: message.isTerminal ? '1px solid rgba(34, 197, 94, 0.3)' : 'none',

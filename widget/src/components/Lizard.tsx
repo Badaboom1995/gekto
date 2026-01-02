@@ -5,6 +5,7 @@ import { ChatWindow } from './ChatWindow'
 import { useDraggable } from '../hooks/useDraggable'
 import { useCopyable } from '../hooks/useCopyable'
 import { useSwarm, type LizardSettings } from '../context/SwarmContext'
+import { useAgent } from '../context/AgentContext'
 
 const LIZARD_SIZE = 90
 const CHAT_WIDTH = 400
@@ -32,6 +33,10 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
   } = useSwarm()
 
   const color = settings?.color ?? defaultSettings.color
+  const agentName = settings?.agentName
+
+  const { getLizardState } = useAgent()
+  const agentState = getLizardState(id)
 
   const isSelected = selectedIds.has(id)
   const isChatOpen = activeChatId === id
@@ -39,6 +44,23 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [menuVisible, setMenuVisible] = useState(false)
   const [isShaking, setIsShaking] = useState(false)
+  const [showDone, setShowDone] = useState(false)
+  const prevStateRef = useRef(agentState)
+
+  // Show done icon when agent finishes (until user opens chat)
+  useEffect(() => {
+    if (prevStateRef.current === 'working' && agentState === 'ready') {
+      setShowDone(true)
+    }
+    prevStateRef.current = agentState
+  }, [agentState])
+
+  // Clear done badge when chat is opened
+  useEffect(() => {
+    if (isChatOpen && showDone) {
+      setShowDone(false)
+    }
+  }, [isChatOpen, showDone])
 
   const { isCopying, copyOrigin, startCopy, endCopy } = useCopyable({
     onCopy: addLizard,
@@ -159,6 +181,55 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
         )}
 
         <LizardAvatar size={LIZARD_SIZE} isShaking={isShaking} color={color} />
+
+        {/* Status indicator - flickering circle on left side */}
+        {(agentState !== 'ready' || showDone) && (
+          <div
+            className="absolute flex items-center justify-center"
+            style={{
+              top: 4,
+              left: 4,
+              width: 22,
+              height: 22,
+              borderRadius: '50%',
+              fontSize: 11,
+              color: 'white',
+              background: agentState === 'error'
+                ? 'rgba(239, 68, 68, 0.9)'
+                : agentState === 'working'
+                ? 'rgba(59, 130, 246, 0.9)'
+                : 'rgba(60, 60, 70, 0.95)',
+              border: '2px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: agentState === 'working'
+                ? '0 0 12px rgba(59, 130, 246, 0.6), 0 0 24px rgba(59, 130, 246, 0.3)'
+                : '0 2px 6px rgba(0,0,0,0.4)',
+              animation: agentState === 'working' ? 'flicker 1.5s ease-in-out infinite' : 'none',
+            }}
+          >
+            {showDone && agentState === 'ready' && '✓'}
+            {agentState === 'working' && '⚡'}
+            {agentState === 'queued' && '⏳'}
+            {agentState === 'error' && '!'}
+          </div>
+        )}
+
+        {/* Agent name on left side */}
+        {agentName && (
+          <div
+            className="absolute whitespace-nowrap pointer-events-none"
+            style={{
+              top: '50%',
+              right: LIZARD_SIZE + 8,
+              transform: 'translateY(-50%)',
+              fontSize: 12,
+              fontWeight: 500,
+              color: 'rgba(255, 255, 255, 0.9)',
+              textShadow: '0 1px 3px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            {agentName}
+          </div>
+        )}
 
         <LizardMenu
           lizardId={id}

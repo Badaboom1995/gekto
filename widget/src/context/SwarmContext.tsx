@@ -11,6 +11,7 @@ interface Position {
 
 interface LizardSettings {
   color: string
+  agentName?: string
 }
 
 interface LizardData {
@@ -44,6 +45,8 @@ interface SwarmContextValue {
   addLizard: (position: Position) => void
   deleteLizard: (id: string) => void
   updateLizardColor: (id: string, color: string) => void
+  updateLizardName: (id: string, name: string) => void
+  getLizardName: (id: string) => string | undefined
   openChat: (id: string, mode: ChatMode) => void
   closeChat: () => void
   toggleSelection: (id: string, addToSelection: boolean) => void
@@ -304,6 +307,16 @@ export function SwarmProvider({
     ))
   }, [])
 
+  const updateLizardName = useCallback((id: string, agentName: string) => {
+    setLizards(prev => prev.map(l =>
+      l.id === id ? { ...l, settings: { color: l.settings?.color ?? defaultSettings.color, ...l.settings, agentName } } : l
+    ))
+  }, [defaultSettings.color])
+
+  const getLizardName = useCallback((id: string): string | undefined => {
+    return lizards.find(l => l.id === id)?.settings?.agentName
+  }, [lizards])
+
   const openChat = useCallback((id: string, mode: ChatMode) => {
     setActiveChatId(id)
     setChatMode(mode)
@@ -471,6 +484,8 @@ export function SwarmProvider({
     addLizard,
     deleteLizard,
     updateLizardColor,
+    updateLizardName,
+    getLizardName,
     openChat,
     closeChat,
     toggleSelection,
@@ -479,7 +494,7 @@ export function SwarmProvider({
     unregisterLizard,
     arrange,
     saveLizards,
-  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveLizards])
+  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, updateLizardName, getLizardName, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveLizards])
 
   return (
     <SwarmContext.Provider value={value}>
