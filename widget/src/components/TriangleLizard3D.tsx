@@ -48,13 +48,15 @@ interface TriangleLizardHeadProps {
   skinColor?: string
   detailColor?: string
   eyeColor?: string
+  faceRight?: boolean
 }
 
 const TriangleLizardHead = ({
   followMouse = true,
   skinColor = "#A8F15A",
   detailColor = "#96D651",
-  eyeColor = "black"
+  eyeColor = "black",
+  faceRight = false
 }: TriangleLizardHeadProps) => {
   const groupRef = useRef<Group>(null)
 
@@ -68,8 +70,11 @@ const TriangleLizardHead = ({
     }
   })
 
+  const yRotation = faceRight ? 1 : -1
+  const zRotation = faceRight ? Math.PI / 8 : -Math.PI / 8
+
   return (
-    <group rotation={[-0.3, -1, -Math.PI / 8]}>
+    <group rotation={[-0.3, yRotation, zRotation]}>
       <group ref={groupRef}>
         {/* MAIN HEAD: Cone/Pyramid shape for triangular look */}
         <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
@@ -129,6 +134,7 @@ interface TriangleLizard3DProps {
   skinColor?: string
   detailColor?: string
   eyeColor?: string
+  faceRight?: boolean
 }
 
 export function TriangleLizard3D({
@@ -137,7 +143,8 @@ export function TriangleLizard3D({
   className = '',
   skinColor = "#A8F15A",
   detailColor = "#96D651",
-  eyeColor = "black"
+  eyeColor = "black",
+  faceRight = false
 }: TriangleLizard3DProps) {
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -154,8 +161,8 @@ export function TriangleLizard3D({
       <Canvas camera={{ position: [0, 0, 3], fov: 45 }} style={{ pointerEvents: 'none' }}>
         <ambientLight intensity={1.3} />
         <pointLight position={[3, 1, 10]} intensity={1} />
-        <directionalLight position={[3, 5, 5]} intensity={0.5} />
-        <TriangleLizardHead followMouse={followMouse} skinColor={skinColor} detailColor={detailColor} eyeColor={eyeColor} />
+        <directionalLight position={[3, 5, 5]} intensity={1} />
+        <TriangleLizardHead followMouse={followMouse} skinColor={skinColor} detailColor={detailColor} eyeColor={eyeColor} faceRight={faceRight} />
       </Canvas>
     </div>
   )

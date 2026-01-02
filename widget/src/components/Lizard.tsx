@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
 import { LizardAvatar } from './LizardAvatar'
-import { LizardMenu } from './LizardMenu'
 import { ChatWindow } from './ChatWindow'
 import { useDraggable } from '../hooks/useDraggable'
 import { useCopyable } from '../hooks/useCopyable'
@@ -30,10 +29,12 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
     registerLizard,
     unregisterLizard,
     saveLizards,
+    getLizardName,
   } = useSwarm()
 
   const color = settings?.color ?? defaultSettings.color
-  const agentName = settings?.agentName
+  // Use getLizardName to get live updates when name changes
+  const agentName = getLizardName(id)
 
   const { getLizardState } = useAgent()
   const agentState = getLizardState(id)
@@ -41,9 +42,6 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
   const isSelected = selectedIds.has(id)
   const isChatOpen = activeChatId === id
 
-  const [isHovered, setIsHovered] = useState(false)
-  const [menuVisible, setMenuVisible] = useState(false)
-  const [isShaking, setIsShaking] = useState(false)
   const [showDone, setShowDone] = useState(false)
   const prevStateRef = useRef(agentState)
 
@@ -72,7 +70,6 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
       if (isAltKey) {
         startCopy(pos)
       }
-      setMenuVisible(false)
     },
     onDragEnd: (pos, moved, isAltKey) => {
       if (isAltKey && moved && copyOrigin) {
@@ -102,23 +99,7 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
     return () => unregisterLizard(id)
   }, [id, registerLizard, unregisterLizard, setPosition])
 
-  // Hide menu immediately when conditions change
-  const shouldShowMenu = isHovered && !isDragging && !isChatOpen
-  if (!shouldShowMenu && menuVisible) {
-    setMenuVisible(false)
-  }
-
-  // Show menu on hover with delay
-  useEffect(() => {
-    if (!shouldShowMenu) return
-    const timer = setTimeout(() => setMenuVisible(true), 300)
-    return () => clearTimeout(timer)
-  }, [shouldShowMenu])
-
   const handleClick = (e: React.MouseEvent) => {
-    // Don't open chat if clicking on menu
-    if ((e.target as HTMLElement).closest('[data-radial-menu]')) return
-
     if (!hasMoved()) {
       if (e.shiftKey) {
         toggleSelection(id, true)
@@ -126,11 +107,6 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
       }
       openChat(id, 'task')
     }
-  }
-
-  const handleShake = () => {
-    setIsShaking(true)
-    setTimeout(() => setIsShaking(false), 500)
   }
 
   return (
@@ -157,30 +133,15 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
         style={{
           left: position.x,
           top: position.y,
-          zIndex: menuVisible ? 1100 : (isCopying ? 1001 : 1000),
+          zIndex: isCopying ? 1001 : 1000,
           opacity: isCopying ? 0.4 : 1,
           transition: isDragging ? 'transform 0.2s ease-out' : 'left 0.4s ease-out, top 0.4s ease-out, transform 0.2s ease-out, filter 0.2s ease-out',
           filter: isSelected ? 'brightness(1.4) drop-shadow(0 0 12px rgba(100, 200, 255, 0.8))' : 'none',
         }}
         onMouseDown={handlers.onMouseDown}
         onClick={handleClick}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
       >
-        {/* Invisible hover extension to the left for menu */}
-        {menuVisible && (
-          <div
-            className="absolute"
-            style={{
-              right: LIZARD_SIZE,
-              top: -20,
-              width: 220,
-              height: LIZARD_SIZE + 40,
-            }}
-          />
-        )}
-
-        <LizardAvatar size={LIZARD_SIZE} isShaking={isShaking} color={color} />
+        <LizardAvatar size={LIZARD_SIZE} color={color} />
 
         {/* Status indicator - flickering circle on left side */}
         {(agentState !== 'ready' || showDone) && (
@@ -230,14 +191,6 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
             {agentName}
           </div>
         )}
-
-        <LizardMenu
-          lizardId={id}
-          isVisible={menuVisible}
-          size={LIZARD_SIZE}
-          onHide={() => setMenuVisible(false)}
-          onShake={handleShake}
-        />
       </div>
 
       {/* Chat Window - positioned to the left of lizard, lizard at bottom */}

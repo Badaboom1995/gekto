@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { SwarmProvider, useSwarm, useSelectionRect, type LizardData, type LizardSettings } from '../context/SwarmContext'
 import { SelectionOverlay } from './SelectionOverlay'
 import { Lizard, LIZARD_SIZE } from './Lizard'
+import { MasterLizard } from './MasterLizard'
+// import { SOSButton } from './SOSButton'
 
 interface LizardsSwarmProps {
   settings?: LizardSettings
@@ -42,8 +44,10 @@ function LizardsList() {
 function SwarmContent() {
   return (
     <>
+      <MasterLizard />
       <LizardsList />
       <SelectionRectOverlay />
+      {/* <SOSButton /> */}
     </>
   )
 }

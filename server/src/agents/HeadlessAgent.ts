@@ -1,4 +1,4 @@
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 
 export interface AgentResponse {
   type: string
@@ -24,9 +24,24 @@ export interface HeadlessAgentConfig {
 export class HeadlessAgent {
   private sessionId: string | null = null
   private config: HeadlessAgentConfig
+  private currentProc: ChildProcess | null = null
 
   constructor(config: HeadlessAgentConfig = {}) {
     this.config = config
+  }
+
+  kill(): boolean {
+    if (this.currentProc && !this.currentProc.killed) {
+      console.log('[HeadlessAgent] Killing process:', this.currentProc.pid)
+      this.currentProc.kill('SIGTERM')
+      this.currentProc = null
+      return true
+    }
+    return false
+  }
+
+  isRunning(): boolean {
+    return this.currentProc !== null && !this.currentProc.killed
   }
 
   async send(message: string, callbacks?: StreamCallbacks): Promise<AgentResponse> {
@@ -60,6 +75,7 @@ export class HeadlessAgent {
         env: process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       })
+      this.currentProc = proc
       console.log('[HeadlessAgent] Spawned claude with pid:', proc.pid)
 
       // Close stdin immediately - we pass everything via args
@@ -103,6 +119,7 @@ export class HeadlessAgent {
 
       proc.on('close', (code) => {
         console.log('[HeadlessAgent] Process closed, code:', code)
+        this.currentProc = null
 
         if (buffer.trim()) {
           try {

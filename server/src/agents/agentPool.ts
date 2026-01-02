@@ -13,6 +13,7 @@ interface LizardSession {
   agent: HeadlessAgent
   isProcessing: boolean
   queue: QueuedMessage[]
+  currentWs: WebSocket | null  // Track current WebSocket for delivering responses
 }
 
 // Per-lizard sessions
@@ -29,7 +30,7 @@ function summarizeInput(input: Record<string, unknown>): string {
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful coding assistant. Be concise and direct in your responses.`
 
-function getOrCreateSession(lizardId: string): LizardSession {
+function getOrCreateSession(lizardId: string, ws?: WebSocket): LizardSession {
   let session = sessions.get(lizardId)
   if (!session) {
     session = {
@@ -39,8 +40,12 @@ function getOrCreateSession(lizardId: string): LizardSession {
       }),
       isProcessing: false,
       queue: [],
+      currentWs: ws ?? null,
     }
     sessions.set(lizardId, session)
+  } else if (ws) {
+    // Update WebSocket reference for existing session
+    session.currentWs = ws
   }
   return session
 }
@@ -55,31 +60,41 @@ export function getQueueLength(lizardId: string): number {
   return session?.queue.length ?? 0
 }
 
+// Helper to safely send to current WebSocket
+function safeSend(session: LizardSession, data: object) {
+  const ws = session.currentWs
+  if (ws && ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify(data))
+  } else {
+    console.log('[AgentPool] WebSocket not available, message dropped:', data)
+  }
+}
+
 export async function sendMessage(
   lizardId: string,
   message: string,
   ws: WebSocket
 ): Promise<AgentResponse> {
-  const session = getOrCreateSession(lizardId)
+  const session = getOrCreateSession(lizardId, ws)
 
-  // Create streaming callbacks that tag messages with lizardId
+  // Create streaming callbacks that use session's current WebSocket
   const callbacks: StreamCallbacks = {
     onToolStart: (tool: string, input?: Record<string, unknown>) => {
-      ws.send(JSON.stringify({
+      safeSend(session, {
         type: 'tool',
         lizardId,
         status: 'running',
         tool,
         input: input ? summarizeInput(input) : undefined,
-      }))
+      })
     },
     onToolEnd: (tool: string) => {
-      ws.send(JSON.stringify({
+      safeSend(session, {
         type: 'tool',
         lizardId,
         status: 'completed',
         tool,
-      }))
+      })
     },
   }
 
@@ -104,35 +119,35 @@ async function processMessage(
   lizardId: string,
   session: LizardSession,
   message: string,
-  ws: WebSocket,
+  _ws: WebSocket,  // Kept for queue compatibility, but we use session.currentWs
   callbacks: StreamCallbacks
 ): Promise<AgentResponse> {
   session.isProcessing = true
-  ws.send(JSON.stringify({ type: 'state', lizardId, state: 'working' }))
+  safeSend(session, { type: 'state', lizardId, state: 'working' })
 
   try {
     const response = await session.agent.send(message, callbacks)
 
-    ws.send(JSON.stringify({
+    safeSend(session, {
       type: 'response',
       lizardId,
       text: response.result,
       sessionId: response.session_id,
       cost: response.total_cost_usd,
       duration: response.duration_ms,
-    }))
+    })
 
     return response
   } catch (err) {
-    ws.send(JSON.stringify({
+    safeSend(session, {
       type: 'error',
       lizardId,
       message: String(err),
-    }))
+    })
     throw err
   } finally {
     session.isProcessing = false
-    ws.send(JSON.stringify({ type: 'state', lizardId, state: 'ready' }))
+    safeSend(session, { type: 'state', lizardId, state: 'ready' })
 
     // Process next queued message if any
     if (session.queue.length > 0) {
@@ -158,4 +173,57 @@ export function deleteSession(lizardId: string): void {
 
 export function getWorkingDir(): string {
   return process.cwd()
+}
+
+// Update WebSocket for all sessions (called when new client connects)
+export function attachWebSocket(ws: WebSocket): void {
+  for (const session of sessions.values()) {
+    session.currentWs = ws
+  }
+  console.log(`[AgentPool] Attached WebSocket to ${sessions.size} existing session(s)`)
+}
+
+export interface ActiveSession {
+  lizardId: string
+  isProcessing: boolean
+  isRunning: boolean
+  queueLength: number
+}
+
+export function getActiveSessions(): ActiveSession[] {
+  const result: ActiveSession[] = []
+  for (const [lizardId, session] of sessions) {
+    result.push({
+      lizardId,
+      isProcessing: session.isProcessing,
+      isRunning: session.agent.isRunning(),
+      queueLength: session.queue.length,
+    })
+  }
+  return result
+}
+
+export function killSession(lizardId: string): boolean {
+  const session = sessions.get(lizardId)
+  if (session) {
+    console.log(`[AgentPool] Killing session for lizard: ${lizardId}`)
+    const killed = session.agent.kill()
+    session.isProcessing = false
+    session.queue = []
+    return killed
+  }
+  return false
+}
+
+export function killAllSessions(): number {
+  let count = 0
+  for (const [lizardId, session] of sessions) {
+    console.log(`[AgentPool] Killing session for lizard: ${lizardId}`)
+    if (session.agent.kill()) {
+      count++
+    }
+    session.isProcessing = false
+    session.queue = []
+  }
+  return count
 }

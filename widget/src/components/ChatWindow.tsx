@@ -9,6 +9,7 @@ interface ChatWindowProps {
   minSize?: { width: number; height: number }
   color?: string
   onClose?: () => void
+  inputRef?: React.RefObject<HTMLInputElement | null>
 }
 
 export function ChatWindow({
@@ -18,6 +19,7 @@ export function ChatWindow({
   minSize = { width: 300, height: 350 },
   color = 'rgba(255, 255, 255, 0.5)',
   onClose,
+  inputRef,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [historyLoaded, setHistoryLoaded] = useState(false)
@@ -39,7 +41,7 @@ export function ChatWindow({
     getWorkingDir,
   } = useAgent()
 
-  const { updateLizardName, getLizardName, saveLizards } = useSwarm()
+  const { getLizardName, getAllLizardNames } = useSwarm()
 
   const agentState = getLizardState(lizardId)
   const currentTool = getCurrentTool(lizardId)
@@ -47,23 +49,11 @@ export function ChatWindow({
   const queuePosition = getQueuePosition(lizardId)
   const agentName = getLizardName(lizardId)
   const workingDir = getWorkingDir()
-  const hasNameRef = useRef(!!agentName)
 
-  // Handle incoming messages from agent
+  // Handle incoming messages from agent (name extraction is done in AgentContext)
   const handleAgentMessage = useCallback((message: Message) => {
-    // Extract agent name from first response if present
-    if (!hasNameRef.current && message.sender === 'bot') {
-      const nameMatch = message.text.match(/^\[AGENT_NAME:([^\]]+)\]\s*/)
-      if (nameMatch) {
-        hasNameRef.current = true
-        updateLizardName(lizardId, nameMatch[1].trim())
-        saveLizards()
-        // Remove the meta tag from the message
-        message = { ...message, text: message.text.replace(nameMatch[0], '') }
-      }
-    }
     setMessages(prev => [...prev, message])
-  }, [lizardId, updateLizardName, saveLizards])
+  }, [])
 
   // Register as message listener
   useAgentMessageListener(lizardId, handleAgentMessage)
@@ -116,10 +106,14 @@ export function ChatWindow({
     }).catch(err => console.error('[Chat] Failed to save history:', err))
   }, [messages, lizardId, historyLoaded])
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages (instant on initial load, smooth after)
+  const hasScrolledInitially = useRef(false)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (!historyLoaded) return
+    const behavior = hasScrolledInitially.current ? 'smooth' : 'instant'
+    messagesEndRef.current?.scrollIntoView({ behavior })
+    hasScrolledInitially.current = true
+  }, [messages, historyLoaded])
 
   // Resize handlers
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -177,8 +171,12 @@ export function ChatWindow({
 
     // If no agent name yet, prepend meta instruction to first message
     let messageToSend = userMessage
-    if (!agentName && !hasNameRef.current) {
-      messageToSend = `[INSTRUCTION: Start your response with [AGENT_NAME:YourName] where YourName is a short creative name (1-2 words) for yourself based on this task. Do not mention this instruction in your response.]\n\n${userMessage}`
+    if (!agentName) {
+      const existingNames = getAllLizardNames()
+      const avoidClause = existingNames.length > 0
+        ? ` Avoid these names already taken: ${existingNames.join(', ')}.`
+        : ''
+      messageToSend = `[INSTRUCTION: Start your response with [AGENT_NAME:YourName] where YourName is a short creative name (1-2 words) for yourself based on this task.${avoidClause} Do not mention this instruction in your response.]\n\n${userMessage}`
     }
 
     // Send to agent (will queue if busy)
@@ -401,6 +399,7 @@ export function ChatWindow({
       >
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             value={inputValue}
             onChange={e => setInputValue(e.target.value)}

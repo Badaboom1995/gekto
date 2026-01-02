@@ -6,6 +6,7 @@ interface LizardAvatarProps {
   isShaking?: boolean
   followMouse?: boolean
   color?: string
+  faceRight?: boolean
 }
 
 // Derive a slightly darker detail color from the main color
@@ -28,7 +29,7 @@ function deriveDetailColor(color: string): string {
   return `#${darken(r).toString(16).padStart(2, '0')}${darken(g).toString(16).padStart(2, '0')}${darken(b).toString(16).padStart(2, '0')}`
 }
 
-export function LizardAvatar({ size, isShaking = false, followMouse = true, color = '#BFFF6B' }: LizardAvatarProps) {
+export function LizardAvatar({ size, isShaking = false, followMouse = true, color = '#BFFF6B', faceRight = false }: LizardAvatarProps) {
   const detailColor = useMemo(() => deriveDetailColor(color), [color])
 
   return (
@@ -52,6 +53,7 @@ export function LizardAvatar({ size, isShaking = false, followMouse = true, colo
         skinColor={color}
         detailColor={detailColor}
         eyeColor="black"
+        faceRight={faceRight}
       />
     </div>
   )

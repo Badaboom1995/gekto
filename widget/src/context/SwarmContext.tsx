@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
+import { useAgent } from './AgentContext'
 
 type ChatMode = 'task' | 'plan'
 type Arrangement = 'grid' | 'stack' | 'row' | 'column'
@@ -47,6 +48,7 @@ interface SwarmContextValue {
   updateLizardColor: (id: string, color: string) => void
   updateLizardName: (id: string, name: string) => void
   getLizardName: (id: string) => string | undefined
+  getAllLizardNames: () => string[]
   openChat: (id: string, mode: ChatMode) => void
   closeChat: () => void
   toggleSelection: (id: string, addToSelection: boolean) => void
@@ -153,6 +155,8 @@ export function SwarmProvider({
   gap = -30,
   arrangeHotkey = 'ArrowRight',
 }: SwarmProviderProps) {
+  const { setNameExtractor } = useAgent()
+
   const [lizards, setLizards] = useState<LizardData[]>(initialLizards)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
@@ -317,6 +321,12 @@ export function SwarmProvider({
     return lizards.find(l => l.id === id)?.settings?.agentName
   }, [lizards])
 
+  const getAllLizardNames = useCallback((): string[] => {
+    return lizards
+      .map(l => l.settings?.agentName)
+      .filter((name): name is string => !!name)
+  }, [lizards])
+
   const openChat = useCallback((id: string, mode: ChatMode) => {
     setActiveChatId(id)
     setChatMode(mode)
@@ -353,6 +363,17 @@ export function SwarmProvider({
   // Save lizards to server - use ref to avoid stale closure in arrange
   const lizardsRef = useRef(lizards)
   lizardsRef.current = lizards
+
+  // Register name extractor with AgentContext so names are extracted even when chat is closed
+  useEffect(() => {
+    setNameExtractor((lizardId: string, name: string) => {
+      setLizards(prev => prev.map(l =>
+        l.id === lizardId
+          ? { ...l, settings: { ...l.settings, color: l.settings?.color ?? DEFAULT_SETTINGS.color, agentName: name } }
+          : l
+      ))
+    })
+  }, [setNameExtractor])
 
   const saveLizards = useCallback(() => {
     const currentLizards = lizardsRef.current
@@ -486,6 +507,7 @@ export function SwarmProvider({
     updateLizardColor,
     updateLizardName,
     getLizardName,
+    getAllLizardNames,
     openChat,
     closeChat,
     toggleSelection,
@@ -494,7 +516,7 @@ export function SwarmProvider({
     unregisterLizard,
     arrange,
     saveLizards,
-  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, updateLizardName, getLizardName, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveLizards])
+  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, updateLizardName, getLizardName, getAllLizardNames, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveLizards])
 
   return (
     <SwarmContext.Provider value={value}>

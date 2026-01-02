@@ -14,6 +14,13 @@ interface PermissionRequest {
 
 type AgentState = 'ready' | 'working' | 'queued' | 'error'
 
+interface ActiveAgent {
+  lizardId: string
+  isProcessing: boolean
+  isRunning: boolean
+  queueLength: number
+}
+
 interface Message {
   id: string
   text: string
@@ -40,6 +47,15 @@ interface AgentContextValue {
   getPermissionRequest: (lizardId: string) => PermissionRequest | null
   getQueuePosition: (lizardId: string) => number
   getWorkingDir: () => string
+
+  // SOS functionality
+  activeAgents: ActiveAgent[]
+  refreshAgentList: () => void
+  killAgent: (lizardId: string) => void
+  killAllAgents: () => void
+
+  // Name extraction callback (set by SwarmContext)
+  setNameExtractor: (extractor: (lizardId: string, name: string) => void) => void
 }
 
 const AgentContext = createContext<AgentContextValue | null>(null)
@@ -94,10 +110,14 @@ export function AgentProvider({ children }: AgentProviderProps) {
   // Per-lizard sessions
   const [sessions, setSessions] = useState<Map<string, LizardSession>>(() => new Map())
   const [workingDir, setWorkingDir] = useState('')
+  const [activeAgents, setActiveAgents] = useState<ActiveAgent[]>([])
   const wsRef = useRef<WebSocket | null>(null)
 
   // Message listeners - ChatWindow can register to receive messages
   const messageListenersRef = useRef<Map<string, (message: Message) => void>>(new Map())
+
+  // Name extractor callback - set by SwarmContext to handle name extraction
+  const nameExtractorRef = useRef<((lizardId: string, name: string) => void) | null>(null)
 
   // Helper to update a specific lizard's session
   const updateSession = useCallback((lizardId: string, updates: Partial<LizardSession>) => {
@@ -117,6 +137,8 @@ export function AgentProvider({ children }: AgentProviderProps) {
 
     ws.onopen = () => {
       console.log('[Agent] Connected')
+      // Fetch active agents list on connect
+      ws.send(JSON.stringify({ type: 'list_agents' }))
     }
 
     ws.onmessage = (event) => {
@@ -173,11 +195,36 @@ export function AgentProvider({ children }: AgentProviderProps) {
             }
             break
 
+          case 'agents_list':
+            setActiveAgents(msg.agents || [])
+            break
+
+          case 'kill_result':
+          case 'kill_all_result':
+            // Refresh the list after killing
+            ws.send(JSON.stringify({ type: 'list_agents' }))
+            break
+
           case 'response':
           case 'error': {
+            let text = msg.type === 'error' ? `Error: ${msg.message}` : msg.text
+
+            // Extract agent name if present
+            if (lizardId && msg.type === 'response') {
+              const nameMatch = text.match(/^\[AGENT_NAME:([^\]]+)\]\s*/)
+              if (nameMatch) {
+                const extractedName = nameMatch[1].trim()
+                text = text.replace(nameMatch[0], '')
+                // Call name extractor if registered
+                if (nameExtractorRef.current) {
+                  nameExtractorRef.current(lizardId, extractedName)
+                }
+              }
+            }
+
             const newMessage: Message = {
               id: Date.now().toString(),
-              text: msg.type === 'error' ? `Error: ${msg.message}` : msg.text,
+              text,
               sender: 'bot',
               timestamp: new Date(),
             }
@@ -192,6 +239,9 @@ export function AgentProvider({ children }: AgentProviderProps) {
                 saveMessageToHistory(lizardId, newMessage)
               }
             }
+
+            // Refresh agents list after response
+            ws.send(JSON.stringify({ type: 'list_agents' }))
             break
           }
         }
@@ -239,8 +289,18 @@ export function AgentProvider({ children }: AgentProviderProps) {
   }, [updateSession])
 
   const getLizardState = useCallback((lizardId: string): AgentState => {
-    return sessions.get(lizardId)?.state ?? 'ready'
-  }, [sessions])
+    // Check local session state first
+    const sessionState = sessions.get(lizardId)?.state
+    if (sessionState && sessionState !== 'ready') {
+      return sessionState
+    }
+    // Fall back to server-reported state (for orphan agents or reconnects)
+    const serverAgent = activeAgents.find(a => a.lizardId === lizardId)
+    if (serverAgent?.isRunning || serverAgent?.isProcessing) {
+      return 'working'
+    }
+    return sessionState ?? 'ready'
+  }, [sessions, activeAgents])
 
   const getCurrentTool = useCallback((lizardId: string): ToolStatus | null => {
     return sessions.get(lizardId)?.currentTool ?? null
@@ -258,6 +318,28 @@ export function AgentProvider({ children }: AgentProviderProps) {
     return workingDir
   }, [workingDir])
 
+  const refreshAgentList = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_agents' }))
+    }
+  }, [])
+
+  const killAgent = useCallback((lizardId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'kill', lizardId }))
+    }
+  }, [])
+
+  const killAllAgents = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'kill_all' }))
+    }
+  }, [])
+
+  const setNameExtractor = useCallback((extractor: (lizardId: string, name: string) => void) => {
+    nameExtractorRef.current = extractor
+  }, [])
+
   // Expose method to register/unregister message listeners
   useEffect(() => {
     (window as unknown as { __agentMessageListeners: Map<string, (message: Message) => void> }).__agentMessageListeners = messageListenersRef.current
@@ -271,6 +353,11 @@ export function AgentProvider({ children }: AgentProviderProps) {
     getPermissionRequest,
     getQueuePosition,
     getWorkingDir: getWorkingDirFn,
+    activeAgents,
+    refreshAgentList,
+    killAgent,
+    killAllAgents,
+    setNameExtractor,
   }
 
   return (
