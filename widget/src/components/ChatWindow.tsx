@@ -34,12 +34,14 @@ export function ChatWindow({
     getLizardState,
     getCurrentTool,
     getPermissionRequest,
+    getQueuePosition,
     getWorkingDir,
   } = useAgent()
 
   const agentState = getLizardState(lizardId)
   const currentTool = getCurrentTool(lizardId)
   const permissionRequest = getPermissionRequest(lizardId)
+  const queuePosition = getQueuePosition(lizardId)
   const workingDir = getWorkingDir()
 
   // Handle incoming messages from agent
@@ -143,7 +145,8 @@ export function ChatWindow({
   }, [isResizing, minSize.width, minSize.height])
 
   const handleSend = () => {
-    if (!inputValue.trim() || agentState !== 'ready') return
+    // Allow sending if ready or queued (will queue on server)
+    if (!inputValue.trim() || agentState === 'error') return
 
     const userMessage = inputValue.trim()
 
@@ -156,7 +159,7 @@ export function ChatWindow({
     }
     setMessages(prev => [...prev, newMessage])
 
-    // Send to agent
+    // Send to agent (will queue if busy)
     sendMessage(lizardId, userMessage)
 
     setInputValue('')
@@ -170,7 +173,7 @@ export function ChatWindow({
   }
 
   const handlePermissionResponse = (approved: boolean) => {
-    respondToPermission(approved)
+    respondToPermission(lizardId, approved)
   }
 
   const getStatusText = () => {
@@ -181,6 +184,7 @@ export function ChatWindow({
     }
     switch (agentState) {
       case 'working': return 'Thinking...'
+      case 'queued': return `Queued (position ${queuePosition})`
       case 'error': return 'Connection error'
       default: return ''
     }
@@ -220,6 +224,9 @@ export function ChatWindow({
             )}
             {agentState === 'working' && !currentTool && (
               <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+            )}
+            {agentState === 'queued' && (
+              <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
             )}
             {currentTool && (
               <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
@@ -377,11 +384,13 @@ export function ChatWindow({
             onChange={e => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              agentState !== 'ready'
-                ? 'Waiting...'
-                : 'Type a message...'
+              agentState === 'error'
+                ? 'Connection error'
+                : agentState === 'queued'
+                  ? 'Add to queue...'
+                  : 'Type a message...'
             }
-            disabled={agentState !== 'ready'}
+            disabled={agentState === 'error'}
             className="flex-1 px-3 py-2 rounded-lg text-sm text-white placeholder-white/40 outline-none disabled:opacity-50"
             style={{
               background: 'rgba(255, 255, 255, 0.1)',
@@ -390,14 +399,14 @@ export function ChatWindow({
           />
           <button
             onClick={handleSend}
-            disabled={agentState !== 'ready'}
+            disabled={agentState === 'error'}
             className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             style={{
               background: `${color}88`,
               color: 'white',
             }}
           >
-            Send
+            {agentState === 'working' || agentState === 'queued' ? 'Queue' : 'Send'}
           </button>
         </div>
       </div>

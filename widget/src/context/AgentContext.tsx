@@ -12,7 +12,7 @@ interface PermissionRequest {
   description?: string
 }
 
-type AgentState = 'ready' | 'working' | 'error'
+type AgentState = 'ready' | 'working' | 'queued' | 'error'
 
 interface Message {
   id: string
@@ -22,26 +22,23 @@ interface Message {
   isTerminal?: boolean
 }
 
-interface AgentSession {
-  lizardId: string
+interface LizardSession {
   state: AgentState
   currentTool: ToolStatus | null
   permissionRequest: PermissionRequest | null
-  workingDir: string
+  queuePosition: number
 }
 
 interface AgentContextValue {
-  // Current session (if any lizard has active work)
-  activeSession: AgentSession | null
-
   // Actions
   sendMessage: (lizardId: string, message: string) => void
-  respondToPermission: (approved: boolean) => void
+  respondToPermission: (lizardId: string, approved: boolean) => void
 
   // Get state for a specific lizard
   getLizardState: (lizardId: string) => AgentState
   getCurrentTool: (lizardId: string) => ToolStatus | null
   getPermissionRequest: (lizardId: string) => PermissionRequest | null
+  getQueuePosition: (lizardId: string) => number
   getWorkingDir: () => string
 }
 
@@ -86,13 +83,31 @@ async function saveMessageToHistory(lizardId: string, message: Message) {
   }
 }
 
+const DEFAULT_SESSION: LizardSession = {
+  state: 'ready',
+  currentTool: null,
+  permissionRequest: null,
+  queuePosition: 0,
+}
+
 export function AgentProvider({ children }: AgentProviderProps) {
-  const [activeSession, setActiveSession] = useState<AgentSession | null>(null)
+  // Per-lizard sessions
+  const [sessions, setSessions] = useState<Map<string, LizardSession>>(() => new Map())
+  const [workingDir, setWorkingDir] = useState('')
   const wsRef = useRef<WebSocket | null>(null)
-  const activeLizardIdRef = useRef<string | null>(null)
 
   // Message listeners - ChatWindow can register to receive messages
   const messageListenersRef = useRef<Map<string, (message: Message) => void>>(new Map())
+
+  // Helper to update a specific lizard's session
+  const updateSession = useCallback((lizardId: string, updates: Partial<LizardSession>) => {
+    setSessions(prev => {
+      const next = new Map(prev)
+      const current = next.get(lizardId) ?? { ...DEFAULT_SESSION }
+      next.set(lizardId, { ...current, ...updates })
+      return next
+    })
+  }, [])
 
   // Connect to agent WebSocket once
   useEffect(() => {
@@ -107,44 +122,54 @@ export function AgentProvider({ children }: AgentProviderProps) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        const lizardId = activeLizardIdRef.current
+        const lizardId = msg.lizardId
 
-        console.log('[Agent] Received:', msg.type, msg)
+        console.log('[Agent] Received:', msg.type, lizardId, msg)
 
         switch (msg.type) {
           case 'state':
-            if (msg.state === 'working') {
-              setActiveSession(prev => prev ? { ...prev, state: 'working' } : null)
-            } else if (msg.state === 'ready') {
-              setActiveSession(prev => prev ? { ...prev, state: 'ready', currentTool: null } : null)
+            if (lizardId) {
+              if (msg.state === 'working') {
+                updateSession(lizardId, { state: 'working', queuePosition: 0 })
+              } else if (msg.state === 'ready') {
+                updateSession(lizardId, { state: 'ready', currentTool: null, queuePosition: 0 })
+              }
+            }
+            break
+
+          case 'queued':
+            if (lizardId) {
+              updateSession(lizardId, { state: 'queued', queuePosition: msg.position })
             }
             break
 
           case 'tool':
-            setActiveSession(prev => prev ? {
-              ...prev,
-              currentTool: {
-                tool: msg.tool,
-                status: msg.status,
-                input: msg.input,
-              }
-            } : null)
+            if (lizardId) {
+              updateSession(lizardId, {
+                currentTool: {
+                  tool: msg.tool,
+                  status: msg.status,
+                  input: msg.input,
+                }
+              })
+            }
             break
 
           case 'permission':
-            setActiveSession(prev => prev ? {
-              ...prev,
-              permissionRequest: {
-                tool: msg.tool,
-                input: msg.input,
-                description: msg.description,
-              }
-            } : null)
+            if (lizardId) {
+              updateSession(lizardId, {
+                permissionRequest: {
+                  tool: msg.tool,
+                  input: msg.input,
+                  description: msg.description,
+                }
+              })
+            }
             break
 
           case 'info':
             if (msg.workingDir) {
-              setActiveSession(prev => prev ? { ...prev, workingDir: msg.workingDir } : null)
+              setWorkingDir(msg.workingDir)
             }
             break
 
@@ -167,13 +192,6 @@ export function AgentProvider({ children }: AgentProviderProps) {
                 saveMessageToHistory(lizardId, newMessage)
               }
             }
-
-            setActiveSession(prev => prev ? {
-              ...prev,
-              state: 'ready',
-              currentTool: null,
-              permissionRequest: null,
-            } : null)
             break
           }
         }
@@ -184,74 +202,61 @@ export function AgentProvider({ children }: AgentProviderProps) {
 
     ws.onclose = () => {
       console.log('[Agent] Disconnected')
-      setActiveSession(prev => prev ? { ...prev, state: 'error' } : null)
     }
 
     ws.onerror = (error) => {
       console.error('[Agent] WebSocket error:', error)
-      setActiveSession(prev => prev ? { ...prev, state: 'error' } : null)
     }
 
     return () => {
       ws.close()
     }
-  }, [])
+  }, [updateSession])
 
   const sendMessage = useCallback((lizardId: string, message: string) => {
     if (wsRef.current?.readyState !== WebSocket.OPEN) return
 
-    activeLizardIdRef.current = lizardId
-
-    // Create or update session
-    setActiveSession(prev => ({
-      lizardId,
-      state: 'working',
-      currentTool: null,
-      permissionRequest: null,
-      workingDir: prev?.workingDir || '',
-    }))
+    // Optimistically set to working (server will confirm or queue)
+    updateSession(lizardId, { state: 'working' })
 
     wsRef.current.send(JSON.stringify({
       type: 'chat',
+      lizardId,
       content: message,
     }))
-  }, [])
+  }, [updateSession])
 
-  const respondToPermission = useCallback((approved: boolean) => {
+  const respondToPermission = useCallback((lizardId: string, approved: boolean) => {
     if (wsRef.current?.readyState !== WebSocket.OPEN) return
 
     wsRef.current.send(JSON.stringify({
       type: 'permission_response',
+      lizardId,
       approved,
     }))
 
-    setActiveSession(prev => prev ? { ...prev, permissionRequest: null } : null)
-  }, [])
+    updateSession(lizardId, { permissionRequest: null })
+  }, [updateSession])
 
   const getLizardState = useCallback((lizardId: string): AgentState => {
-    if (activeSession?.lizardId === lizardId) {
-      return activeSession.state
-    }
-    return 'ready'
-  }, [activeSession])
+    return sessions.get(lizardId)?.state ?? 'ready'
+  }, [sessions])
 
   const getCurrentTool = useCallback((lizardId: string): ToolStatus | null => {
-    if (activeSession?.lizardId === lizardId) {
-      return activeSession.currentTool
-    }
-    return null
-  }, [activeSession])
+    return sessions.get(lizardId)?.currentTool ?? null
+  }, [sessions])
 
   const getPermissionRequest = useCallback((lizardId: string): PermissionRequest | null => {
-    if (activeSession?.lizardId === lizardId) {
-      return activeSession.permissionRequest
-    }
-    return null
-  }, [activeSession])
+    return sessions.get(lizardId)?.permissionRequest ?? null
+  }, [sessions])
 
-  const getWorkingDir = useCallback((): string => {
-    return activeSession?.workingDir || ''
-  }, [activeSession])
+  const getQueuePosition = useCallback((lizardId: string): number => {
+    return sessions.get(lizardId)?.queuePosition ?? 0
+  }, [sessions])
+
+  const getWorkingDirFn = useCallback((): string => {
+    return workingDir
+  }, [workingDir])
 
   // Expose method to register/unregister message listeners
   useEffect(() => {
@@ -259,13 +264,13 @@ export function AgentProvider({ children }: AgentProviderProps) {
   }, [])
 
   const value: AgentContextValue = {
-    activeSession,
     sendMessage,
     respondToPermission,
     getLizardState,
     getCurrentTool,
     getPermissionRequest,
-    getWorkingDir,
+    getQueuePosition,
+    getWorkingDir: getWorkingDirFn,
   }
 
   return (
