@@ -17,7 +17,6 @@ const products: Product[] = [
   { id: 3, name: 'IBM PC 5150', category: 'Business', price: 599.00, rating: 4.7, reviews: 3200, image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Ibm_pc_5150.jpg/1200px-Ibm_pc_5150.jpg' },
   { id: 4, name: 'Amiga 500', category: 'Home', price: 349.00, rating: 4.9, reviews: 2100, image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Amiga500_system.jpg/1200px-Amiga500_system.jpg' },
   { id: 5, name: 'Atari 800', category: 'Gaming', price: 279.00, rating: 4.6, reviews: 1500, image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Atari-800-Computer-FL.jpg/1200px-Atari-800-Computer-FL.jpg' },
-  { id: 6, name: 'TRS-80', category: 'Business', price: 399.00, rating: 4.5, reviews: 980, image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/TRS-80_Model_1.jpg/1200px-TRS-80_Model_1.jpg' },
   { id: 7, name: 'ZX Spectrum', category: 'Home', price: 199.00, rating: 4.7, reviews: 2800, image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/ZXSpectrum48k.jpg/1200px-ZXSpectrum48k.jpg' },
   { id: 8, name: 'Macintosh 128K', category: 'Business', price: 799.00, rating: 4.9, reviews: 4100, image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Macintosh_128k_transparency.png/800px-Macintosh_128k_transparency.png' },
   { id: 9, name: 'BBC Micro', category: 'Education', price: 329.00, rating: 4.6, reviews: 1200, image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/BBC_Micro_Front_Restored.jpg/1200px-BBC_Micro_Front_Restored.jpg' },

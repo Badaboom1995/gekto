@@ -1,6 +1,6 @@
 {
   "name": "@gekto/server",
-  "version": "0.0.1",
+  "version": "0.0.5",
   "type": "module",
   "scripts": {
     "dev": "GEKTO_DEV=1 tsx watch src/proxy.ts",
