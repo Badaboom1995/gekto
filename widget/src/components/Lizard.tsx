@@ -4,7 +4,6 @@ import { LizardMenu } from './LizardMenu'
 import { ChatWindow } from './ChatWindow'
 import { useDraggable } from '../hooks/useDraggable'
 import { useCopyable } from '../hooks/useCopyable'
-import { useOrderable } from '../hooks/useOrderable'
 import { useSwarm, type LizardSettings } from '../context/SwarmContext'
 
 const LIZARD_SIZE = 90
@@ -45,8 +44,6 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
     onCopy: addLizard,
   })
 
-  const { targetPosition } = useOrderable({ id, size: LIZARD_SIZE })
-
   const { ref, position, setPosition, isDragging, hasMoved, handlers } = useDraggable({
     initialPosition,
     onDragStart: (pos, isAltKey) => {
@@ -70,14 +67,7 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
     },
   })
 
-  // Animate to target position when triggered by OrderableContainer
-  useEffect(() => {
-    if (targetPosition) {
-      setPosition(targetPosition)
-    }
-  }, [targetPosition, setPosition])
-
-  // Register position for rectangular selection
+  // Register position for rectangular selection and arrangement
   const positionRef = useRef(position)
 
   useEffect(() => {
@@ -86,9 +76,9 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
 
   useEffect(() => {
     const getPosition = () => positionRef.current
-    registerLizard(id, getPosition, LIZARD_SIZE)
+    registerLizard(id, getPosition, setPosition, LIZARD_SIZE)
     return () => unregisterLizard(id)
-  }, [id, registerLizard, unregisterLizard])
+  }, [id, registerLizard, unregisterLizard, setPosition])
 
   // Hide menu immediately when conditions change
   const shouldShowMenu = isHovered && !isDragging && !isChatOpen

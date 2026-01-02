@@ -1,30 +1,32 @@
+import { useState, useEffect } from 'react'
 import { SwarmProvider, useSwarm, useSelectionRect, type LizardData, type LizardSettings } from '../context/SwarmContext'
-import { OrderableContainer } from '../hooks/useOrderable'
 import { SelectionOverlay } from './SelectionOverlay'
 import { Lizard, LIZARD_SIZE } from './Lizard'
 
 interface LizardsSwarmProps {
-  initialLizards: LizardData[]
   settings?: LizardSettings
 }
 
-// Separate component so rect changes don't re-render lizards
+interface SavedLizard {
+  id: string
+  position: { x: number; y: number }
+  settings?: { color: string }
+}
+
+const DEFAULT_LIZARDS: LizardData[] = [
+  { id: '1', initialPosition: { x: window.innerWidth - LIZARD_SIZE - 30, y: window.innerHeight - LIZARD_SIZE - 30 } }
+]
+
 function SelectionRectOverlay() {
   const rect = useSelectionRect()
   return <SelectionOverlay rect={rect} />
 }
 
 function LizardsList() {
-  const { lizards, saveLizards } = useSwarm()
+  const { lizards } = useSwarm()
 
   return (
-    <OrderableContainer
-      hotkey="ArrowRight"
-      arrangement="grid"
-      corner="bottom-right"
-      gap={-30}
-      onArrange={saveLizards}
-    >
+    <>
       {lizards.map(lizard => (
         <Lizard
           key={lizard.id}
@@ -33,7 +35,7 @@ function LizardsList() {
           settings={lizard.settings}
         />
       ))}
-    </OrderableContainer>
+    </>
   )
 }
 
@@ -46,9 +48,28 @@ function SwarmContent() {
   )
 }
 
-export function LizardsSwarm({ initialLizards, settings }: LizardsSwarmProps) {
+export function LizardsSwarm({ settings }: LizardsSwarmProps) {
+  const [lizards, setLizards] = useState<LizardData[] | null>(null)
+
+  useEffect(() => {
+    fetch('/__gekto/api/lizards')
+      .then(res => res.json())
+      .then((saved: SavedLizard[]) => {
+        if (saved && saved.length > 0) {
+          setLizards(saved.map(l => ({ id: l.id, initialPosition: l.position, settings: l.settings })))
+        } else {
+          setLizards(DEFAULT_LIZARDS)
+        }
+      })
+      .catch(() => {
+        setLizards(DEFAULT_LIZARDS)
+      })
+  }, [])
+
+  if (!lizards) return null
+
   return (
-    <SwarmProvider initialLizards={initialLizards} defaultSettings={settings}>
+    <SwarmProvider initialLizards={lizards} defaultSettings={settings}>
       <SwarmContent />
     </SwarmProvider>
   )

@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
 
 type ChatMode = 'task' | 'plan'
+type Arrangement = 'grid' | 'stack' | 'row' | 'column'
+type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
 interface Position {
   x: number
@@ -17,9 +19,10 @@ interface LizardData {
   settings?: LizardSettings
 }
 
-interface SelectableItem {
+interface LizardInstance {
   id: string
   getPosition: () => Position
+  setPosition: (pos: Position) => void
   size: number
 }
 
@@ -46,9 +49,12 @@ interface SwarmContextValue {
   toggleSelection: (id: string, addToSelection: boolean) => void
   clearSelection: () => void
 
-  // Position registration for rectangular selection
-  registerLizard: (id: string, getPosition: () => Position, size: number) => void
+  // Lizard instance registration (for position tracking and arrangement)
+  registerLizard: (id: string, getPosition: () => Position, setPosition: (pos: Position) => void, size: number) => void
   unregisterLizard: (id: string) => void
+
+  // Arrangement
+  arrange: () => void
 
   // Persistence
   saveLizards: () => void
@@ -73,6 +79,10 @@ interface SwarmProviderProps {
   children: ReactNode
   initialLizards: LizardData[]
   defaultSettings?: LizardSettings
+  arrangement?: Arrangement
+  corner?: Corner
+  gap?: number
+  arrangeHotkey?: string
 }
 
 const DEFAULT_SETTINGS: LizardSettings = { color: '#BFFF6B' }
@@ -131,12 +141,20 @@ function randomDistinctColor(existingColors: string[]): string {
   return `hsl(${bestHue}, ${saturation}%, ${lightness}%)`
 }
 
-export function SwarmProvider({ children, initialLizards, defaultSettings = DEFAULT_SETTINGS }: SwarmProviderProps) {
+export function SwarmProvider({
+  children,
+  initialLizards,
+  defaultSettings = DEFAULT_SETTINGS,
+  arrangement = 'grid',
+  corner = 'bottom-right',
+  gap = -30,
+  arrangeHotkey = 'ArrowRight',
+}: SwarmProviderProps) {
   const [lizards, setLizards] = useState<LizardData[]>(initialLizards)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [chatMode, setChatMode] = useState<ChatMode>('task')
-  const selectableItemsRef = useRef<Map<string, SelectableItem>>(new Map())
+  const lizardInstancesRef = useRef<Map<string, LizardInstance>>(new Map())
   const [selectionRect, setSelectionRect] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const [isShiftPressed, setIsShiftPressed] = useState(false)
 
@@ -195,11 +213,11 @@ export function SwarmProvider({ children, initialLizards, defaultSettings = DEFA
         const rect = getNormalizedRect(currentRect)
         const newSelected = new Set(selectedIdsRef.current)
 
-        selectableItemsRef.current.forEach(item => {
-          const pos = item.getPosition()
-          const itemCenter = { x: pos.x + item.size / 2, y: pos.y + item.size / 2 }
+        lizardInstancesRef.current.forEach(instance => {
+          const pos = instance.getPosition()
+          const itemCenter = { x: pos.x + instance.size / 2, y: pos.y + instance.size / 2 }
           if (isPointInRect(itemCenter, rect)) {
-            newSelected.add(item.id)
+            newSelected.add(instance.id)
           }
         })
 
@@ -311,37 +329,109 @@ export function SwarmProvider({ children, initialLizards, defaultSettings = DEFA
     setSelectedIds(new Set())
   }, [])
 
-  const registerLizard = useCallback((id: string, getPosition: () => Position, size: number) => {
-    selectableItemsRef.current.set(id, { id, getPosition, size })
+  const registerLizard = useCallback((id: string, getPosition: () => Position, setPosition: (pos: Position) => void, size: number) => {
+    lizardInstancesRef.current.set(id, { id, getPosition, setPosition, size })
   }, [])
 
   const unregisterLizard = useCallback((id: string) => {
-    selectableItemsRef.current.delete(id)
+    lizardInstancesRef.current.delete(id)
   }, [])
 
-  // Save lizards to server
-  const saveLizardsRef = useRef<() => void>(() => {})
+  // Save lizards to server - use ref to avoid stale closure in arrange
+  const lizardsRef = useRef(lizards)
+  lizardsRef.current = lizards
 
   const saveLizards = useCallback(() => {
-    const lizardData = lizards.map(l => {
-      const item = selectableItemsRef.current.get(l.id)
-      const position = item ? item.getPosition() : l.initialPosition
-      console.log('[Swarm] Lizard', l.id, 'position:', position, 'settings:', l.settings, 'from ref:', !!item)
+    const currentLizards = lizardsRef.current
+    const lizardData = currentLizards.map(l => {
+      const instance = lizardInstancesRef.current.get(l.id)
+      const position = instance ? instance.getPosition() : l.initialPosition
       return { id: l.id, position, settings: l.settings }
     })
 
-    console.log('[Swarm] Saving lizards:', lizardData)
     fetch('/__gekto/api/lizards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(lizardData),
     })
-      .then(res => res.json())
-      .then(data => console.log('[Swarm] Save response:', data))
       .catch(err => console.error('[Swarm] Failed to save lizards:', err))
-  }, [lizards])
+  }, [])
 
-  saveLizardsRef.current = saveLizards
+  // Arrange lizards in a pattern
+  const arrange = useCallback(() => {
+    const instances = Array.from(lizardInstancesRef.current.values())
+    if (instances.length === 0) return
+
+    const avgSize = instances.reduce((sum, inst) => sum + inst.size, 0) / instances.length
+    const padding = 30
+
+    let originX: number
+    let originY: number
+    let dirX: number
+    let dirY: number
+
+    switch (corner) {
+      case 'top-left':
+        originX = padding
+        originY = padding
+        dirX = 1
+        dirY = 1
+        break
+      case 'top-right':
+        originX = window.innerWidth - avgSize - padding
+        originY = padding
+        dirX = -1
+        dirY = 1
+        break
+      case 'bottom-left':
+        originX = padding
+        originY = window.innerHeight - avgSize - padding
+        dirX = 1
+        dirY = -1
+        break
+      case 'bottom-right':
+      default:
+        originX = window.innerWidth - avgSize - padding
+        originY = window.innerHeight - avgSize - padding
+        dirX = -1
+        dirY = -1
+        break
+    }
+
+    instances.forEach((instance, index) => {
+      let x: number
+      let y: number
+
+      switch (arrangement) {
+        case 'stack':
+          x = originX
+          y = originY
+          break
+        case 'row':
+          x = originX + dirX * index * (instance.size + gap)
+          y = originY
+          break
+        case 'column':
+          x = originX
+          y = originY + dirY * index * (instance.size + gap)
+          break
+        case 'grid':
+        default: {
+          const rows = Math.floor((window.innerHeight * 0.8) / (avgSize + gap)) || 1
+          const row = index % rows
+          const col = Math.floor(index / rows)
+          x = originX + dirX * col * (instance.size + gap)
+          y = originY + dirY * row * (instance.size + gap)
+          break
+        }
+      }
+
+      instance.setPosition({ x, y })
+    })
+
+    // Save after arrangement with small delay for positions to update
+    setTimeout(saveLizards, 50)
+  }, [arrangement, corner, gap, saveLizards])
 
   // Auto-save when lizards are added/removed (debounced)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -352,16 +442,25 @@ export function SwarmProvider({ children, initialLizards, defaultSettings = DEFA
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
-    saveTimeoutRef.current = setTimeout(() => {
-      saveLizardsRef.current()
-    }, 500)
+    saveTimeoutRef.current = setTimeout(saveLizards, 500)
 
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
       }
     }
-  }, [lizards, initialLizards])
+  }, [lizards, initialLizards, saveLizards])
+
+  // Arrange hotkey listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === arrangeHotkey) {
+        arrange()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [arrangeHotkey, arrange])
 
   const value = useMemo<SwarmContextValue>(() => ({
     lizards,
@@ -378,8 +477,9 @@ export function SwarmProvider({ children, initialLizards, defaultSettings = DEFA
     clearSelection,
     registerLizard,
     unregisterLizard,
+    arrange,
     saveLizards,
-  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, saveLizards])
+  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveLizards])
 
   return (
     <SwarmContext.Provider value={value}>
