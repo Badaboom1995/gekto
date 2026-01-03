@@ -41,12 +41,18 @@ interface AgentContextValue {
   sendMessage: (lizardId: string, message: string) => void
   respondToPermission: (lizardId: string, approved: boolean) => void
 
+  // Session state - exposed for reactivity
+  sessions: Map<string, LizardSession>
+
   // Get state for a specific lizard
   getLizardState: (lizardId: string) => AgentState
   getCurrentTool: (lizardId: string) => ToolStatus | null
   getPermissionRequest: (lizardId: string) => PermissionRequest | null
   getQueuePosition: (lizardId: string) => number
   getWorkingDir: () => string
+
+  // WebSocket access for GektoContext
+  getWebSocket: () => WebSocket | null
 
   // SOS functionality
   activeAgents: ActiveAgent[]
@@ -137,6 +143,8 @@ export function AgentProvider({ children }: AgentProviderProps) {
 
     ws.onopen = () => {
       console.log('[Agent] Connected')
+      // Expose WebSocket globally for GektoContext
+      (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket = ws
       // Fetch active agents list on connect
       ws.send(JSON.stringify({ type: 'list_agents' }))
     }
@@ -197,6 +205,24 @@ export function AgentProvider({ children }: AgentProviderProps) {
 
           case 'agents_list':
             setActiveAgents(msg.agents || [])
+            // Sync session states from server
+            if (msg.agents && msg.agents.length > 0) {
+              console.log('[Agent] Received agents_list:', msg.agents)
+              setSessions(prev => {
+                const next = new Map(prev)
+                for (const agent of msg.agents) {
+                  console.log('[Agent] Syncing session:', agent.lizardId, 'state:', agent.state)
+                  const current = next.get(agent.lizardId) ?? { ...DEFAULT_SESSION }
+                  next.set(agent.lizardId, {
+                    ...current,
+                    state: agent.state || 'ready',
+                    queuePosition: agent.queuePosition || 0,
+                  })
+                }
+                console.log('[Agent] Sessions after sync:', Array.from(next.entries()))
+                return next
+              })
+            }
             break
 
           case 'kill_result':
@@ -204,6 +230,29 @@ export function AgentProvider({ children }: AgentProviderProps) {
             // Refresh the list after killing
             ws.send(JSON.stringify({ type: 'list_agents' }))
             break
+
+          case 'debug_pool_result':
+            console.log('\n========== AGENT POOL (from server) ==========')
+            console.log('Sessions:', msg.sessions)
+            console.table(msg.sessions)
+            console.log('===============================================\n')
+            break
+
+          // Plan-related messages - forward to GektoContext
+          case 'plan_created':
+          case 'plan_updated':
+          case 'plan_failed':
+          case 'gekto_chat':
+          case 'gekto_remove':
+          case 'task_started':
+          case 'task_completed':
+          case 'task_failed': {
+            const gektoHandler = (window as unknown as { __gektoMessageHandler?: (msg: unknown) => void }).__gektoMessageHandler
+            if (gektoHandler) {
+              gektoHandler(msg)
+            }
+            break
+          }
 
           case 'response':
           case 'error': {
@@ -237,6 +286,14 @@ export function AgentProvider({ children }: AgentProviderProps) {
               } else {
                 // Chat is closed - save directly to history
                 saveMessageToHistory(lizardId, newMessage)
+              }
+
+              // If this is a worker lizard, notify GektoContext about completion
+              if (lizardId.startsWith('worker_')) {
+                const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
+                if (gektoHandler) {
+                  gektoHandler(lizardId, text, msg.type === 'error')
+                }
               }
             }
 
@@ -340,6 +397,10 @@ export function AgentProvider({ children }: AgentProviderProps) {
     nameExtractorRef.current = extractor
   }, [])
 
+  const getWebSocketFn = useCallback((): WebSocket | null => {
+    return wsRef.current
+  }, [])
+
   // Expose method to register/unregister message listeners
   useEffect(() => {
     (window as unknown as { __agentMessageListeners: Map<string, (message: Message) => void> }).__agentMessageListeners = messageListenersRef.current
@@ -348,11 +409,13 @@ export function AgentProvider({ children }: AgentProviderProps) {
   const value: AgentContextValue = {
     sendMessage,
     respondToPermission,
+    sessions,
     getLizardState,
     getCurrentTool,
     getPermissionRequest,
     getQueuePosition,
     getWorkingDir: getWorkingDirFn,
+    getWebSocket: getWebSocketFn,
     activeAgents,
     refreshAgentList,
     killAgent,

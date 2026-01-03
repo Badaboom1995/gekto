@@ -3,6 +3,10 @@ import type { Server } from 'http'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
 import { sendMessage, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket } from './agentPool'
+import { processWithTools, type ExecutionPlan } from './gektoTools'
+
+// Store active plans
+const activePlans = new Map<string, ExecutionPlan>()
 
 export function setupAgentWebSocket(server: Server, path: string = '/__gekto/agent') {
   const wss = new WebSocketServer({ noServer: true })
@@ -26,6 +30,17 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
     // Send working directory info
     ws.send(JSON.stringify({ type: 'info', workingDir: getWorkingDir() }))
 
+    // Send current state for all active sessions
+    const activeSessions = getActiveSessions()
+    for (const session of activeSessions) {
+      ws.send(JSON.stringify({
+        type: 'state',
+        lizardId: session.lizardId,
+        state: session.state,
+      }))
+      console.log(`[Agent] Sent state sync: ${session.lizardId} = ${session.state}`)
+    }
+
     ws.on('message', async (message: Buffer | string) => {
       try {
         const msg = JSON.parse(message.toString())
@@ -39,6 +54,20 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             }))
             return
 
+          case 'debug_pool':
+            const sessions = getActiveSessions()
+            console.log('\n========== AGENT POOL DEBUG ==========')
+            console.log('Active sessions:', sessions.length)
+            sessions.forEach(s => {
+              console.log(`  - ${s.lizardId}: processing=${s.isProcessing}, running=${s.isRunning}, queue=${s.queueLength}`)
+            })
+            console.log('=======================================\n')
+            ws.send(JSON.stringify({
+              type: 'debug_pool_result',
+              sessions,
+            }))
+            return
+
           case 'kill_all':
             const killedCount = killAllSessions()
             ws.send(JSON.stringify({
@@ -48,6 +77,106 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             // Notify about state changes
             for (const session of getActiveSessions()) {
               ws.send(JSON.stringify({ type: 'state', lizardId: session.lizardId, state: 'ready' }))
+            }
+            return
+
+          case 'create_plan':
+            // Process message with Gekto tools
+            console.log('[Agent] Processing Gekto message:', msg.prompt?.substring(0, 50))
+
+            // Set master lizard to working state
+            ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'working' }))
+
+            try {
+              // Use lizards from client if provided, otherwise fall back to server sessions
+              const clientLizards = msg.lizards || []
+              const activeAgents = clientLizards.length > 0
+                ? clientLizards.map((l: { id: string; isWorker?: boolean }) => ({
+                    lizardId: l.id,
+                    isProcessing: false,
+                    queueLength: 0,
+                    isWorker: l.isWorker,
+                  }))
+                : getActiveSessions()
+
+              console.log('[Agent] Available agents for removal:', activeAgents.map((a: { lizardId: string }) => a.lizardId))
+
+              const response = await processWithTools(
+                msg.prompt,
+                msg.planId,
+                getWorkingDir(),
+                activeAgents
+              )
+
+              switch (response.type) {
+                case 'chat':
+                  // Gekto responded with a chat message
+                  ws.send(JSON.stringify({
+                    type: 'gekto_chat',
+                    planId: msg.planId,
+                    message: response.message,
+                  }))
+                  break
+
+                case 'build':
+                  // Gekto created a plan
+                  if (response.plan) {
+                    activePlans.set(response.plan.id, response.plan)
+                    ws.send(JSON.stringify({ type: 'plan_created', plan: response.plan }))
+                  }
+                  break
+
+                case 'remove':
+                  // Gekto wants to remove agents
+                  if (response.removedAgents && response.removedAgents.length > 0) {
+                    for (const agentId of response.removedAgents) {
+                      killSession(agentId)
+                    }
+                    ws.send(JSON.stringify({
+                      type: 'gekto_remove',
+                      planId: msg.planId,
+                      removedAgents: response.removedAgents,
+                    }))
+                  } else {
+                    ws.send(JSON.stringify({
+                      type: 'gekto_chat',
+                      planId: msg.planId,
+                      message: 'No agents to remove.',
+                    }))
+                  }
+                  break
+              }
+
+              ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'ready' }))
+            } catch (err) {
+              console.error('[Agent] Gekto processing failed:', err)
+              ws.send(JSON.stringify({
+                type: 'gekto_chat',
+                planId: msg.planId,
+                message: `Error: ${err instanceof Error ? err.message : 'Processing failed'}`,
+              }))
+              ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'ready' }))
+            }
+            return
+
+          case 'execute_plan':
+            // Execute an existing plan
+            const plan = activePlans.get(msg.planId)
+            if (!plan) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Plan not found' }))
+              return
+            }
+            // Start executing tasks - this will be handled by the client
+            // which will spawn workers and send individual chat messages
+            plan.status = 'executing'
+            ws.send(JSON.stringify({ type: 'plan_updated', plan }))
+            return
+
+          case 'cancel_plan':
+            const cancelPlan = activePlans.get(msg.planId)
+            if (cancelPlan) {
+              cancelPlan.status = 'failed'
+              activePlans.delete(msg.planId)
             }
             return
         }

@@ -1,5 +1,10 @@
 import { useState } from 'react'
+import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import './App.css'
+import BlogPage from './pages/BlogPage'
+import HomePage from './pages/HomePage'
+import ProfilePage from './pages/ProfilePage'
+import ProductDetailPage from './pages/ProductDetailPage'
 
 interface Product {
   id: number
@@ -31,17 +36,19 @@ const recommendations: Product[] = [
 const categories = ['All', 'Home', 'Business', 'Gaming', 'Education']
 
 function Header() {
+  const location = useLocation()
+
   return (
     <header className="header">
       <div className="header-content">
-        <div className="logo">
+        <Link to="/" className="logo">
           <span className="logo-icon">⌨</span>
           <span className="logo-text">RetroPC</span>
-        </div>
+        </Link>
         <nav className="nav">
-          <a href="#" className="nav-link">Home</a>
-          <a href="#" className="nav-link active">Shop</a>
-          <a href="#" className="nav-link">Blog</a>
+          <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>Home</Link>
+          <Link to="/shop" className={`nav-link ${location.pathname === '/shop' ? 'active' : ''}`}>Shop</Link>
+          <Link to="/blog" className={`nav-link ${location.pathname === '/blog' ? 'active' : ''}`}>Blog</Link>
         </nav>
         <div className="header-actions">
           <button className="icon-btn">
@@ -58,9 +65,9 @@ function Header() {
             </svg>
             <span className="cart-badge">3</span>
           </button>
-          <div className="avatar">
+          <Link to="/profile" className="avatar">
             <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=retro" alt="User" />
-          </div>
+          </Link>
         </div>
       </div>
     </header>
@@ -154,12 +161,14 @@ interface ProductCardProps {
 function ProductCard({ product, variant = 'default' }: ProductCardProps) {
   return (
     <div className={`product-card ${variant === 'recommendation' ? 'recommendation-card' : ''}`}>
-      <div className="product-image-container">
+      <Link to={`/product/${product.id}`} className="product-image-container">
         <span className="product-category-tag">{product.category}</span>
         <img src={product.image} alt={product.name} className="product-image" />
-      </div>
+      </Link>
       <div className="product-info">
-        <h3 className="product-name">{product.name}</h3>
+        <Link to={`/product/${product.id}`} className="product-name-link">
+          <h3 className="product-name">{product.name}</h3>
+        </Link>
         <div className="product-meta">
           <span className="product-rating">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="#FFB800" stroke="#FFB800" strokeWidth="2">
@@ -171,7 +180,7 @@ function ProductCard({ product, variant = 'default' }: ProductCardProps) {
         </div>
         <div className="product-actions">
           <button className="btn btn-outline">Add to Cart</button>
-          <button className="btn btn-primary">Buy Now</button>
+          <Link to={`/product/${product.id}`} className="btn btn-primary">Buy Now</Link>
         </div>
       </div>
     </div>
@@ -295,7 +304,7 @@ function Footer() {
   )
 }
 
-function App() {
+function ShopPage() {
   const [selectedCategory, setSelectedCategory] = useState('All')
 
   const filteredProducts = selectedCategory === 'All'
@@ -303,8 +312,7 @@ function App() {
     : products.filter(p => p.category === selectedCategory)
 
   return (
-    <div className="app">
-      <Header />
+    <>
       <HeroBanner />
       <main className="main-content">
         <CategorySidebar
@@ -322,6 +330,21 @@ function App() {
       </main>
       <Recommendations />
       <Newsletter />
+    </>
+  )
+}
+
+function App() {
+  return (
+    <div className="app">
+      <Header />
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/shop" element={<ShopPage />} />
+        <Route path="/product/:id" element={<ProductDetailPage />} />
+        <Route path="/blog" element={<BlogPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+      </Routes>
       <Footer />
     </div>
   )

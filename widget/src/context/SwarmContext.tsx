@@ -13,6 +13,8 @@ interface Position {
 interface LizardSettings {
   color: string
   agentName?: string
+  isWorker?: boolean      // True if spawned by Gekto
+  taskId?: string         // Task ID if worker
 }
 
 interface LizardData {
@@ -43,7 +45,7 @@ interface SwarmContextValue {
   defaultSettings: LizardSettings
 
   // Actions
-  addLizard: (position: Position) => void
+  addLizard: (position?: Position) => void
   deleteLizard: (id: string) => void
   updateLizardColor: (id: string, color: string) => void
   updateLizardName: (id: string, name: string) => void
@@ -53,6 +55,12 @@ interface SwarmContextValue {
   closeChat: () => void
   toggleSelection: (id: string, addToSelection: boolean) => void
   clearSelection: () => void
+
+  // Worker spawning for Gekto
+  spawnWorkerLizard: (taskId: string, description: string) => string
+  getWorkerLizards: () => LizardData[]
+  cleanupWorkers: () => void
+  clearAllLizards: () => void
 
   // Lizard instance registration (for position tracking and arrangement)
   registerLizard: (id: string, getPosition: () => Position, setPosition: (pos: Position) => void, size: number) => void
@@ -248,20 +256,9 @@ export function SwarmProvider({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Backspace' && selectedIds.size > 0) {
-        const remainingCount = lizards.length - selectedIds.size
-        if (remainingCount < 1) {
-          // Keep at least one lizard
-          const idsToDelete = Array.from(selectedIds).slice(0, selectedIds.size - 1)
-          if (idsToDelete.length === 0) return
-          setLizards(prev => prev.filter(l => !idsToDelete.includes(l.id)))
-          if (activeChatId && idsToDelete.includes(activeChatId)) {
-            setActiveChatId(null)
-          }
-        } else {
-          setLizards(prev => prev.filter(l => !selectedIds.has(l.id)))
-          if (activeChatId && selectedIds.has(activeChatId)) {
-            setActiveChatId(null)
-          }
+        setLizards(prev => prev.filter(l => !selectedIds.has(l.id)))
+        if (activeChatId && selectedIds.has(activeChatId)) {
+          setActiveChatId(null)
         }
         setSelectedIds(new Set())
       }
@@ -287,19 +284,50 @@ export function SwarmProvider({
     return () => window.removeEventListener('click', handleClick)
   }, [])
 
-  const addLizard = useCallback((position: Position) => {
+  const addLizard = useCallback((position?: Position) => {
     setLizards(prev => {
       const existingColors = prev.map(l => l.settings?.color ?? defaultSettings.color)
       const newColor = randomDistinctColor(existingColors)
-      return [...prev, { id: Date.now().toString(), initialPosition: position, settings: { color: newColor } }]
+
+      // Calculate position if not provided
+      let newPosition: Position
+      if (position) {
+        newPosition = position
+      } else {
+        const LIZARD_SIZE = 90
+        const padding = 30
+        // Default: right bottom corner
+        const baseX = window.innerWidth - LIZARD_SIZE - padding
+        const baseY = window.innerHeight - LIZARD_SIZE - padding
+
+        if (prev.length === 0) {
+          // No agents - use bottom right
+          newPosition = { x: baseX, y: baseY }
+        } else {
+          // Get topmost lizard position (smallest y value among those near bottom-right)
+          const instances = Array.from(lizardInstancesRef.current.values())
+          let topY = baseY
+
+          // Find the topmost lizard in the stack
+          for (const instance of instances) {
+            const pos = instance.getPosition()
+            // Consider lizards in the right side of screen
+            if (pos.x > window.innerWidth / 2) {
+              topY = Math.min(topY, pos.y)
+            }
+          }
+
+          // Stack on top using same gap logic as arrange: size + gap
+          newPosition = { x: baseX, y: topY - (LIZARD_SIZE + gap) }
+        }
+      }
+
+      return [...prev, { id: Date.now().toString(), initialPosition: newPosition, settings: { color: newColor } }]
     })
-  }, [defaultSettings.color])
+  }, [defaultSettings.color, gap])
 
   const deleteLizard = useCallback((id: string) => {
-    setLizards(prev => {
-      if (prev.length <= 1) return prev // Keep at least one
-      return prev.filter(l => l.id !== id)
-    })
+    setLizards(prev => prev.filter(l => l.id !== id))
     if (activeChatId === id) {
       setActiveChatId(null)
     }
@@ -350,6 +378,50 @@ export function SwarmProvider({
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set())
+  }, [])
+
+  // Worker lizard spawning for Gekto orchestration
+  const workerCountRef = useRef(0)
+
+  const spawnWorkerLizard = useCallback((taskId: string, description: string): string => {
+    const id = `worker_${Date.now()}_${workerCountRef.current++}`
+    const existingColors = lizardsRef.current.map(l => l.settings?.color ?? defaultSettings.color)
+    const newColor = randomDistinctColor(existingColors)
+
+    // Position workers in bottom-right, stacked vertically
+    const workerIndex = lizardsRef.current.filter(l => l.settings?.isWorker).length
+    const WORKER_SIZE = 90
+    const GAP = -20
+    const position = {
+      x: window.innerWidth - WORKER_SIZE - 30,
+      y: window.innerHeight - WORKER_SIZE - 30 - (workerIndex * (WORKER_SIZE + GAP)),
+    }
+
+    setLizards(prev => [...prev, {
+      id,
+      initialPosition: position,
+      settings: {
+        color: newColor,
+        agentName: description.slice(0, 20),
+        isWorker: true,
+        taskId,
+      },
+    }])
+
+    return id
+  }, [defaultSettings.color])
+
+  const getWorkerLizards = useCallback((): LizardData[] => {
+    return lizards.filter(l => l.settings?.isWorker)
+  }, [lizards])
+
+  const cleanupWorkers = useCallback(() => {
+    setLizards(prev => prev.filter(l => !l.settings?.isWorker))
+  }, [])
+
+  const clearAllLizards = useCallback(() => {
+    setLizards([])
+    setActiveChatId(null)
   }, [])
 
   const registerLizard = useCallback((id: string, getPosition: () => Position, setPosition: (pos: Position) => void, size: number) => {
@@ -512,11 +584,15 @@ export function SwarmProvider({
     closeChat,
     toggleSelection,
     clearSelection,
+    spawnWorkerLizard,
+    getWorkerLizards,
+    cleanupWorkers,
+    clearAllLizards,
     registerLizard,
     unregisterLizard,
     arrange,
     saveLizards,
-  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, updateLizardName, getLizardName, getAllLizardNames, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveLizards])
+  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, updateLizardName, getLizardName, getAllLizardNames, openChat, closeChat, toggleSelection, clearSelection, spawnWorkerLizard, getWorkerLizards, cleanupWorkers, clearAllLizards, registerLizard, unregisterLizard, arrange, saveLizards])
 
   return (
     <SwarmContext.Provider value={value}>

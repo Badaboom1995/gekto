@@ -36,8 +36,9 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
   // Use getLizardName to get live updates when name changes
   const agentName = getLizardName(id)
 
-  const { getLizardState } = useAgent()
-  const agentState = getLizardState(id)
+  const { sessions, getLizardState } = useAgent()
+  // Subscribe to sessions to trigger re-render on state changes
+  const agentState = sessions.get(id)?.state ?? getLizardState(id)
 
   const isSelected = selectedIds.has(id)
   const isChatOpen = activeChatId === id

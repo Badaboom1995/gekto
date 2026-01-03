@@ -1,3 +1,4 @@
+import path from 'path'
 import { WebSocket } from 'ws'
 import { HeadlessAgent, type StreamCallbacks, type AgentResponse } from './HeadlessAgent'
 
@@ -18,7 +19,7 @@ interface LizardSession {
 
 // Per-lizard sessions
 const sessions = new Map<string, LizardSession>()
-
+console.log('SESSIONS!!!', sessions)
 // Summarize tool input for display
 function summarizeInput(input: Record<string, unknown>): string {
   if (input.file_path) return String(input.file_path)
@@ -36,7 +37,7 @@ function getOrCreateSession(lizardId: string, ws?: WebSocket): LizardSession {
     session = {
       agent: new HeadlessAgent({
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
-        workingDir: process.cwd(),
+        workingDir: getWorkingDir(),
       }),
       isProcessing: false,
       queue: [],
@@ -172,6 +173,10 @@ export function deleteSession(lizardId: string): void {
 }
 
 export function getWorkingDir(): string {
+  // In development, use test-app as the working directory
+  if (process.env.NODE_ENV !== 'production') {
+    return path.resolve(process.cwd(), '../test-app')
+  }
   return process.cwd()
 }
 
@@ -188,16 +193,32 @@ export interface ActiveSession {
   isProcessing: boolean
   isRunning: boolean
   queueLength: number
+  // Full state for sync
+  state: 'ready' | 'working' | 'queued'
+  queuePosition: number
 }
 
 export function getActiveSessions(): ActiveSession[] {
   const result: ActiveSession[] = []
   for (const [lizardId, session] of sessions) {
+    // Determine state
+    let state: 'ready' | 'working' | 'queued' = 'ready'
+    let queuePosition = 0
+
+    if (session.isProcessing) {
+      state = 'working'
+    } else if (session.queue.length > 0) {
+      state = 'queued'
+      queuePosition = session.queue.length
+    }
+
     result.push({
       lizardId,
       isProcessing: session.isProcessing,
       isRunning: session.agent.isRunning(),
       queueLength: session.queue.length,
+      state,
+      queuePosition,
     })
   }
   return result

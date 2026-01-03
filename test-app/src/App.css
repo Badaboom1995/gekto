@@ -310,6 +310,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.product-image-container:hover {
+  background: #222;
 }
 
 .product-category-tag {
@@ -340,6 +346,15 @@
   font-weight: 600;
   margin-bottom: 8px;
   color: #fff;
+}
+
+.product-name-link {
+  display: block;
+  text-decoration: none;
+}
+
+.product-name-link:hover .product-name {
+  color: #aaa;
 }
 
 .product-meta {

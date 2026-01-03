@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
 import { useSwarm } from '../context/SwarmContext'
+import { useGekto } from '../context/GektoContext'
+
+const MASTER_ID = 'master'
 
 interface ChatWindowProps {
   lizardId: string
@@ -34,6 +37,7 @@ export function ChatWindow({
   const {
     sendMessage,
     respondToPermission,
+    sessions,
     getLizardState,
     getCurrentTool,
     getPermissionRequest,
@@ -42,8 +46,12 @@ export function ChatWindow({
   } = useAgent()
 
   const { getLizardName, getAllLizardNames } = useSwarm()
+  const { createPlan } = useGekto()
 
-  const agentState = getLizardState(lizardId)
+  const isMaster = lizardId === MASTER_ID
+
+  // Subscribe to sessions to trigger re-render on state changes
+  const agentState = sessions.get(lizardId)?.state ?? getLizardState(lizardId)
   const currentTool = getCurrentTool(lizardId)
   const permissionRequest = getPermissionRequest(lizardId)
   const queuePosition = getQueuePosition(lizardId)
@@ -67,9 +75,12 @@ export function ChatWindow({
           setMessages(saved.map(m => ({ ...m, timestamp: new Date(m.timestamp) })))
         } else {
           // Default greeting if no history
+          const greeting = lizardId === MASTER_ID
+            ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
+            : 'Hi! How can I help you today?'
           setMessages([{
             id: '1',
-            text: 'Hi! How can I help you today?',
+            text: greeting,
             sender: 'bot',
             timestamp: new Date(),
           }])
@@ -77,9 +88,12 @@ export function ChatWindow({
         setHistoryLoaded(true)
       })
       .catch(() => {
+        const greeting = lizardId === MASTER_ID
+          ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
+          : 'Hi! How can I help you today?'
         setMessages([{
           id: '1',
-          text: 'Hi! How can I help you today?',
+          text: greeting,
           sender: 'bot',
           timestamp: new Date(),
         }])
@@ -169,6 +183,13 @@ export function ChatWindow({
     }
     setMessages(prev => [...prev, newMessage])
 
+    // Master lizard routes to plan creation instead of direct execution
+    if (isMaster) {
+      createPlan(userMessage)
+      setInputValue('')
+      return
+    }
+
     // If no agent name yet, prepend meta instruction to first message
     let messageToSend = userMessage
     if (!agentName) {
@@ -255,11 +276,6 @@ export function ChatWindow({
               <div className="w-2 h-2 rounded-full bg-red-400" />
             )}
           </div>
-          {workingDir && (
-            <span className="text-white/40 text-xs font-mono truncate max-w-[250px]" title={workingDir}>
-              {workingDir}
-            </span>
-          )}
         </div>
         {onClose && (
           <button
@@ -430,6 +446,11 @@ export function ChatWindow({
             {agentState === 'working' || agentState === 'queued' ? 'Queue' : 'Send'}
           </button>
         </div>
+        {workingDir && (
+          <div className="mt-2 text-white/30 text-xs font-mono truncate" title={workingDir}>
+            {workingDir}
+          </div>
+        )}
       </div>
 
       {/* Resize handle */}

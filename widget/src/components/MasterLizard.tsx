@@ -1,9 +1,12 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LizardAvatar } from './LizardAvatar'
 import { ChatWindow } from './ChatWindow'
+import { GektoPlanPanel } from './GektoPlanPanel'
+import { RadialMenu } from './RadialMenu'
 import { useDraggable } from '../hooks/useDraggable'
 import { useSwarm } from '../context/SwarmContext'
 import { useAgent } from '../context/AgentContext'
+import { useGekto } from '../context/GektoContext'
 
 const MASTER_LIZARD_SIZE = 140
 const CHAT_HEIGHT = 500
@@ -17,13 +20,46 @@ export function MasterLizard() {
     openChat,
     closeChat,
     saveLizards,
+    addLizard,
+    clearAllLizards,
   } = useSwarm()
 
-  const { getLizardState } = useAgent()
-  const agentState = getLizardState(MASTER_ID)
+  const { sessions, getLizardState } = useAgent()
+  // Subscribe to sessions to trigger re-render on state changes
+  const agentState = sessions.get(MASTER_ID)?.state ?? getLizardState(MASTER_ID)
+
+  const { currentPlan, isPlanPanelOpen, closePlanPanel } = useGekto()
 
   const isChatOpen = activeChatId === MASTER_ID
   const inputRef = useRef<HTMLInputElement>(null)
+  const [isHovered, setIsHovered] = useState(false)
+
+  const menuItems = [
+    {
+      id: 'chat',
+      icon: '💬',
+      label: 'Chat',
+      onClick: () => openChat(MASTER_ID, 'task'),
+    },
+    {
+      id: 'spawn',
+      icon: '🦎',
+      label: 'Spawn Agent',
+      onClick: () => {
+        addLizard()
+      },
+    },
+    {
+      id: 'clear',
+      icon: '🧹',
+      label: 'Clear All',
+      onClick: () => {
+        clearAllLizards()
+      },
+      danger: true,
+      holdDuration: 1000,
+    },
+  ]
 
   // Shift+Enter to open master chat and focus input
   useEffect(() => {
@@ -51,7 +87,11 @@ export function MasterLizard() {
     },
   })
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    // Don't open chat if clicking on menu items
+    if ((e.target as HTMLElement).closest('[data-radial-menu]')) {
+      return
+    }
     if (!hasMoved()) {
       openChat(MASTER_ID, 'task')
     }
@@ -71,8 +111,23 @@ export function MasterLizard() {
         }}
         onMouseDown={handlers.onMouseDown}
         onClick={handleClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
       >
         <LizardAvatar size={MASTER_LIZARD_SIZE} color={MASTER_COLOR} faceRight />
+
+        {/* Extended hover area for menu */}
+        <div
+          className="absolute pointer-events-auto"
+          style={{
+            left: MASTER_LIZARD_SIZE - 20,
+            top: 0,
+            width: 200,
+            height: MASTER_LIZARD_SIZE,
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        />
 
         {/* Status indicator */}
         {agentState !== 'ready' && (
@@ -119,6 +174,14 @@ export function MasterLizard() {
         >
           Gekto
         </div>
+
+        {/* Radial Menu */}
+        <RadialMenu
+          items={menuItems}
+          isVisible={isHovered && !isDragging}
+          size={MASTER_LIZARD_SIZE}
+          side="right"
+        />
       </div>
 
       {/* Chat Window - positioned to the right of master lizard */}
@@ -140,6 +203,19 @@ export function MasterLizard() {
             inputRef={inputRef}
           />
         </div>
+      )}
+
+      {/* Plan Panel - positioned to the right of chat or master lizard */}
+      {isPlanPanelOpen && currentPlan && (
+        <GektoPlanPanel
+          position={{
+            x: isChatOpen
+              ? position.x + MASTER_LIZARD_SIZE + 20 + 420  // Right of chat
+              : position.x + MASTER_LIZARD_SIZE + 20,       // Right of master
+            y: position.y + MASTER_LIZARD_SIZE - 500,
+          }}
+          onClose={closePlanPanel}
+        />
       )}
     </>
   )

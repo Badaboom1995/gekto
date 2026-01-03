@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { SwarmProvider, useSwarm, useSelectionRect, type LizardData, type LizardSettings } from '../context/SwarmContext'
+import { GektoProvider } from '../context/GektoContext'
 import { SelectionOverlay } from './SelectionOverlay'
 import { Lizard, LIZARD_SIZE } from './Lizard'
 import { MasterLizard } from './MasterLizard'
@@ -15,9 +16,7 @@ interface SavedLizard {
   settings?: { color: string }
 }
 
-const DEFAULT_LIZARDS: LizardData[] = [
-  { id: '1', initialPosition: { x: window.innerWidth - LIZARD_SIZE - 30, y: window.innerHeight - LIZARD_SIZE - 30 } }
-]
+const DEFAULT_LIZARDS: LizardData[] = []
 
 function SelectionRectOverlay() {
   const rect = useSelectionRect()
@@ -43,12 +42,12 @@ function LizardsList() {
 
 function SwarmContent() {
   return (
-    <>
+    <GektoProvider>
       <MasterLizard />
       <LizardsList />
       <SelectionRectOverlay />
       {/* <SOSButton /> */}
-    </>
+    </GektoProvider>
   )
 }
 
