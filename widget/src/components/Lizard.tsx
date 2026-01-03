@@ -1,14 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
 import { LizardAvatar } from './LizardAvatar'
-import { ChatWindow } from './ChatWindow'
+import { ChatWindow, getChatSize } from './ChatWindow'
 import { useDraggable } from '../hooks/useDraggable'
 import { useCopyable } from '../hooks/useCopyable'
 import { useSwarm, type LizardSettings } from '../context/SwarmContext'
 import { useAgent } from '../context/AgentContext'
 
 const LIZARD_SIZE = 90
-const CHAT_WIDTH = 400
-const CHAT_HEIGHT = 500
 
 interface LizardProps {
   id: string
@@ -43,6 +41,7 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
   const isSelected = selectedIds.has(id)
   const isChatOpen = activeChatId === id
 
+  const [chatSize, setChatSize] = useState(getChatSize)
   const [showDone, setShowDone] = useState(false)
   const prevStateRef = useRef(agentState)
 
@@ -142,10 +141,10 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
         onMouseDown={handlers.onMouseDown}
         onClick={handleClick}
       >
-        <LizardAvatar size={LIZARD_SIZE} color={color} />
+        <LizardAvatar size={LIZARD_SIZE} color={color} isSpinning={agentState === 'working'} disableMouseFollow={showDone} />
 
         {/* Status indicator - flickering circle on left side */}
-        {(agentState !== 'ready' || showDone) && (
+        {/* {(agentState !== 'ready' || showDone) && (
           <div
             className="absolute flex items-center justify-center"
             style={{
@@ -173,7 +172,7 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
             {agentState === 'queued' && '⏳'}
             {agentState === 'error' && '!'}
           </div>
-        )}
+        )} */}
 
         {/* Agent name on left side */}
         {agentName && (
@@ -200,8 +199,8 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
           className="fixed"
           data-swarm-ui
           style={{
-            left: position.x - CHAT_WIDTH - 20,
-            top: position.y + LIZARD_SIZE - CHAT_HEIGHT,
+            left: position.x - chatSize.width - 20,
+            top: position.y + LIZARD_SIZE - chatSize.height,
             zIndex: 1002,
           }}
         >
@@ -209,6 +208,7 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
             lizardId={id}
             title={chatMode === 'plan' ? 'Plan Mode' : 'Gekto Chat'}
             onClose={closeChat}
+            onResize={setChatSize}
           />
         </div>
       )}

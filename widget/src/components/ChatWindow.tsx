@@ -4,6 +4,34 @@ import { useSwarm } from '../context/SwarmContext'
 import { useGekto } from '../context/GektoContext'
 
 const MASTER_ID = 'master'
+const CHAT_SIZE_KEY = 'gekto-chat-size'
+
+// Default chat size
+const DEFAULT_CHAT_SIZE = { width: 400, height: 500 }
+
+// Load saved size from localStorage
+export function getChatSize(): { width: number; height: number } {
+  try {
+    const saved = localStorage.getItem(CHAT_SIZE_KEY)
+    if (saved) {
+      return JSON.parse(saved)
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_CHAT_SIZE
+}
+
+// Save size to localStorage
+function saveSizeToStorage(size: { width: number; height: number }) {
+  try {
+    localStorage.setItem(CHAT_SIZE_KEY, JSON.stringify(size))
+  } catch {
+    // ignore
+  }
+}
+
+type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 
 interface ChatWindowProps {
   lizardId: string
@@ -12,6 +40,7 @@ interface ChatWindowProps {
   minSize?: { width: number; height: number }
   color?: string
   onClose?: () => void
+  onResize?: (size: { width: number; height: number }) => void
   inputRef?: React.RefObject<HTMLInputElement | null>
 }
 
@@ -22,13 +51,15 @@ export function ChatWindow({
   minSize = { width: 300, height: 350 },
   color = 'rgba(255, 255, 255, 0.5)',
   onClose,
+  onResize,
   inputRef,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [inputValue, setInputValue] = useState('')
-  const [size, setSize] = useState(initialSize)
+  const [size, setSize] = useState(() => getChatSize())
   const [isResizing, setIsResizing] = useState(false)
+  const [resizeDirection, setResizeDirection] = useState<ResizeDirection | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -130,31 +161,58 @@ export function ChatWindow({
   }, [messages, historyLoaded])
 
   // Resize handlers
-  const handleResizeStart = (e: React.MouseEvent) => {
+  const handleResizeStart = (direction: ResizeDirection) => (e: React.MouseEvent) => {
     e.stopPropagation()
+    e.preventDefault()
     resizeStart.current = {
       x: e.clientX,
       y: e.clientY,
       width: size.width,
       height: size.height,
     }
+    setResizeDirection(direction)
     setIsResizing(true)
   }
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (isResizing) {
+      if (isResizing && resizeDirection) {
         const deltaX = e.clientX - resizeStart.current.x
         const deltaY = e.clientY - resizeStart.current.y
-        setSize({
-          width: Math.max(minSize.width, resizeStart.current.width + deltaX),
-          height: Math.max(minSize.height, resizeStart.current.height + deltaY),
-        })
+
+        let newWidth = resizeStart.current.width
+        let newHeight = resizeStart.current.height
+
+        // Handle horizontal resize
+        if (resizeDirection.includes('e')) {
+          newWidth = resizeStart.current.width + deltaX
+        } else if (resizeDirection.includes('w')) {
+          newWidth = resizeStart.current.width - deltaX
+        }
+
+        // Handle vertical resize
+        if (resizeDirection.includes('s')) {
+          newHeight = resizeStart.current.height + deltaY
+        } else if (resizeDirection.includes('n')) {
+          newHeight = resizeStart.current.height - deltaY
+        }
+
+        const newSize = {
+          width: Math.max(minSize.width, newWidth),
+          height: Math.max(minSize.height, newHeight),
+        }
+        setSize(newSize)
+        onResize?.(newSize)
       }
     }
 
     const handleMouseUp = () => {
+      if (isResizing) {
+        // Save size when resize ends
+        saveSizeToStorage(size)
+      }
       setIsResizing(false)
+      setResizeDirection(null)
     }
 
     if (isResizing) {
@@ -166,7 +224,7 @@ export function ChatWindow({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizing, minSize.width, minSize.height])
+  }, [isResizing, resizeDirection, minSize.width, minSize.height, size, onResize])
 
   const handleSend = () => {
     // Allow sending if ready or queued (will queue on server)
@@ -453,14 +511,47 @@ export function ChatWindow({
         )}
       </div>
 
-      {/* Resize handle */}
+      {/* Resize handles */}
+      {/* Corners */}
       <div
-        className="resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
+        className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
         style={{
           background: `linear-gradient(135deg, transparent 50%, ${color}44 50%)`,
           borderRadius: '0 0 16px 0',
         }}
-        onMouseDown={handleResizeStart}
+        onMouseDown={handleResizeStart('se')}
+      />
+      <div
+        className="absolute top-0 right-0 w-3 h-3 cursor-ne-resize"
+        style={{ borderRadius: '0 16px 0 0' }}
+        onMouseDown={handleResizeStart('ne')}
+      />
+      <div
+        className="absolute top-0 left-0 w-3 h-3 cursor-nw-resize"
+        style={{ borderRadius: '16px 0 0 0' }}
+        onMouseDown={handleResizeStart('nw')}
+      />
+      <div
+        className="absolute bottom-0 left-0 w-3 h-3 cursor-sw-resize"
+        style={{ borderRadius: '0 0 0 16px' }}
+        onMouseDown={handleResizeStart('sw')}
+      />
+      {/* Edges */}
+      <div
+        className="absolute top-3 bottom-3 right-0 w-1 cursor-e-resize hover:bg-white/10"
+        onMouseDown={handleResizeStart('e')}
+      />
+      <div
+        className="absolute top-3 bottom-3 left-0 w-1 cursor-w-resize hover:bg-white/10"
+        onMouseDown={handleResizeStart('w')}
+      />
+      <div
+        className="absolute left-3 right-3 top-0 h-1 cursor-n-resize hover:bg-white/10"
+        onMouseDown={handleResizeStart('n')}
+      />
+      <div
+        className="absolute left-3 right-3 bottom-0 h-1 cursor-s-resize hover:bg-white/10"
+        onMouseDown={handleResizeStart('s')}
       />
     </div>
   )

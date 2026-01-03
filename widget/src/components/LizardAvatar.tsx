@@ -4,7 +4,9 @@ import { TriangleLizard3D } from './TriangleLizard3D'
 interface LizardAvatarProps {
   size: number
   isShaking?: boolean
+  isSpinning?: boolean
   followMouse?: boolean
+  disableMouseFollow?: boolean
   color?: string
   faceRight?: boolean
 }
@@ -29,7 +31,7 @@ function deriveDetailColor(color: string): string {
   return `#${darken(r).toString(16).padStart(2, '0')}${darken(g).toString(16).padStart(2, '0')}${darken(b).toString(16).padStart(2, '0')}`
 }
 
-export function LizardAvatar({ size, isShaking = false, followMouse = true, color = '#BFFF6B', faceRight = false }: LizardAvatarProps) {
+export function LizardAvatar({ size, isShaking = false, isSpinning = false, followMouse = true, disableMouseFollow = false, color = '#BFFF6B', faceRight = false }: LizardAvatarProps) {
   const detailColor = useMemo(() => deriveDetailColor(color), [color])
 
   return (
@@ -49,7 +51,8 @@ export function LizardAvatar({ size, isShaking = false, followMouse = true, colo
       `}</style>
       <TriangleLizard3D
         size={size}
-        followMouse={followMouse && !isShaking}
+        followMouse={followMouse && !isShaking && !isSpinning && !disableMouseFollow}
+        isSpinning={isSpinning}
         skinColor={color}
         detailColor={detailColor}
         eyeColor="black"

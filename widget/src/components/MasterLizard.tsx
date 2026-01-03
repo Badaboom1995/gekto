@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { LizardAvatar } from './LizardAvatar'
-import { ChatWindow } from './ChatWindow'
+import { ChatWindow, getChatSize } from './ChatWindow'
 import { GektoPlanPanel } from './GektoPlanPanel'
 import { RadialMenu } from './RadialMenu'
 import { useDraggable } from '../hooks/useDraggable'
@@ -9,7 +9,6 @@ import { useAgent } from '../context/AgentContext'
 import { useGekto } from '../context/GektoContext'
 
 const MASTER_LIZARD_SIZE = 140
-const CHAT_HEIGHT = 500
 const MASTER_ID = 'master'
 const MASTER_COLOR = '#BFFF6B'
 
@@ -33,6 +32,7 @@ export function MasterLizard() {
   const isChatOpen = activeChatId === MASTER_ID
   const inputRef = useRef<HTMLInputElement>(null)
   const [isHovered, setIsHovered] = useState(false)
+  const [chatSize, setChatSize] = useState(getChatSize)
 
   const menuItems = [
     {
@@ -114,7 +114,7 @@ export function MasterLizard() {
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        <LizardAvatar size={MASTER_LIZARD_SIZE} color={MASTER_COLOR} faceRight />
+        <LizardAvatar size={MASTER_LIZARD_SIZE} color={MASTER_COLOR} faceRight isSpinning={agentState === 'working'} />
 
         {/* Extended hover area for menu */}
         <div
@@ -191,7 +191,7 @@ export function MasterLizard() {
           data-swarm-ui
           style={{
             left: position.x + MASTER_LIZARD_SIZE + 20,
-            top: position.y + MASTER_LIZARD_SIZE - CHAT_HEIGHT,
+            top: position.y + MASTER_LIZARD_SIZE - chatSize.height,
             zIndex: 1002,
           }}
         >
@@ -200,6 +200,7 @@ export function MasterLizard() {
             title={chatMode === 'plan' ? 'Master Plan' : 'Gekto Chat'}
             color="rgba(191, 255, 107, 0.5)"
             onClose={closeChat}
+            onResize={setChatSize}
             inputRef={inputRef}
           />
         </div>
@@ -210,9 +211,9 @@ export function MasterLizard() {
         <GektoPlanPanel
           position={{
             x: isChatOpen
-              ? position.x + MASTER_LIZARD_SIZE + 20 + 420  // Right of chat
+              ? position.x + MASTER_LIZARD_SIZE + 20 + chatSize.width + 20  // Right of chat
               : position.x + MASTER_LIZARD_SIZE + 20,       // Right of master
-            y: position.y + MASTER_LIZARD_SIZE - 500,
+            y: position.y + MASTER_LIZARD_SIZE - chatSize.height,
           }}
           onClose={closePlanPanel}
         />

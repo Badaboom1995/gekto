@@ -45,6 +45,7 @@ const Eye = ({ position, rotation, scale = 1, color = "black" }: EyeProps) => {
 
 interface TriangleLizardHeadProps {
   followMouse?: boolean
+  isSpinning?: boolean
   skinColor?: string
   detailColor?: string
   eyeColor?: string
@@ -53,6 +54,7 @@ interface TriangleLizardHeadProps {
 
 const TriangleLizardHead = ({
   followMouse = true,
+  isSpinning = false,
   skinColor = "#A8F15A",
   detailColor = "#96D651",
   eyeColor = "black",
@@ -60,21 +62,38 @@ const TriangleLizardHead = ({
 }: TriangleLizardHeadProps) => {
   const groupRef = useRef<Group>(null)
 
-  useFrame(() => {
-    if (groupRef.current && followMouse) {
-      const targetY = mouseX * 0.4
-      const targetX = mouseY * 0.4
+  useFrame((_, delta) => {
+    if (groupRef.current) {
+      if (isSpinning) {
+        // Spin around the Z axis (nose axis) like a drill
+        groupRef.current.rotation.z += delta * 8
+      } else if (followMouse) {
+        const targetY = mouseX * 0.4
+        const targetX = mouseY * 0.4
 
-      groupRef.current.rotation.y += (targetY - groupRef.current.rotation.y) * 0.1
-      groupRef.current.rotation.x += (targetX - groupRef.current.rotation.x) * 0.1
+        groupRef.current.rotation.y += (targetY - groupRef.current.rotation.y) * 0.1
+        groupRef.current.rotation.x += (targetX - groupRef.current.rotation.x) * 0.1
+        // Reset Z rotation when not spinning
+        groupRef.current.rotation.z += (0 - groupRef.current.rotation.z) * 0.1
+      } else {
+        // Not spinning, not following mouse - look directly at user (neutral position)
+        groupRef.current.rotation.x += (0 - groupRef.current.rotation.x) * 0.1
+        groupRef.current.rotation.y += (0 - groupRef.current.rotation.y) * 0.1
+        groupRef.current.rotation.z += (0 - groupRef.current.rotation.z) * 0.1
+      }
     }
   })
 
-  const yRotation = faceRight ? 1 : -1
-  const zRotation = faceRight ? Math.PI / 8 : -Math.PI / 8
+  // When spinning: face left and slightly up
+  // When not following mouse: face straight at user
+  // Normal: use faceRight prop
+  const facingUser = !followMouse && !isSpinning
+  const yRotation = isSpinning ? -1.2 : facingUser ? 0 : (faceRight ? 1 : -1)
+  const xRotation = isSpinning ? -0.5 : facingUser ? 0 : -0.3
+  const zRotation = isSpinning ? -Math.PI / 8 : facingUser ? 0 : (faceRight ? Math.PI / 8 : -Math.PI / 8)
 
   return (
-    <group rotation={[-0.3, yRotation, zRotation]}>
+    <group rotation={[xRotation, yRotation, zRotation]}>
       <group ref={groupRef}>
         {/* MAIN HEAD: Cone/Pyramid shape for triangular look */}
         <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
@@ -130,6 +149,7 @@ const TriangleLizardHead = ({
 interface TriangleLizard3DProps {
   size?: number
   followMouse?: boolean
+  isSpinning?: boolean
   className?: string
   skinColor?: string
   detailColor?: string
@@ -140,6 +160,7 @@ interface TriangleLizard3DProps {
 export function TriangleLizard3D({
   size = 200,
   followMouse = true,
+  isSpinning = false,
   className = '',
   skinColor = "#A8F15A",
   detailColor = "#96D651",
@@ -162,7 +183,7 @@ export function TriangleLizard3D({
         <ambientLight intensity={1.3} />
         <pointLight position={[3, 1, 10]} intensity={1} />
         <directionalLight position={[3, 5, 5]} intensity={1} />
-        <TriangleLizardHead followMouse={followMouse} skinColor={skinColor} detailColor={detailColor} eyeColor={eyeColor} faceRight={faceRight} />
+        <TriangleLizardHead followMouse={followMouse} isSpinning={isSpinning} skinColor={skinColor} detailColor={detailColor} eyeColor={eyeColor} faceRight={faceRight} />
       </Canvas>
     </div>
   )
