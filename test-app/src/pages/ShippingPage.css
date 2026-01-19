@@ -1,0 +1,737 @@
+/* Shipping Page Styles */
+.shipping-page {
+  min-height: 100vh;
+  background: #0a0a0a;
+}
+
+/* Hero Section */
+.shipping-hero {
+  position: relative;
+  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+  padding: 80px 24px;
+  text-align: center;
+  overflow: hidden;
+}
+
+.shipping-hero-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.shipping-hero-title {
+  font-size: 150px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.05);
+  text-transform: uppercase;
+  letter-spacing: 30px;
+}
+
+.shipping-hero-content {
+  position: relative;
+  z-index: 1;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.shipping-hero-heading {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;
+  margin-bottom: 20px;
+}
+
+.shipping-hero-heading .highlight {
+  background: linear-gradient(135deg, #ff6b6b, #ffd93d);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.shipping-hero-subtitle {
+  font-size: 18px;
+  line-height: 1.7;
+  color: #888;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+/* Shipping Sections */
+.shipping-section {
+  padding: 80px 24px;
+}
+
+.shipping-section.alt-bg {
+  background: #111;
+}
+
+.shipping-container {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.section-icon {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(255, 217, 61, 0.2));
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff6b6b;
+}
+
+.section-header h2 {
+  font-size: 32px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.section-description {
+  font-size: 16px;
+  color: #888;
+  line-height: 1.7;
+  margin-bottom: 32px;
+  max-width: 700px;
+}
+
+/* Policy Cards */
+.policy-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+.policy-card {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 16px;
+  padding: 28px;
+  transition: transform 0.3s, border-color 0.3s;
+}
+
+.shipping-section.alt-bg .policy-card {
+  background: #1a1a1a;
+}
+
+.policy-card:hover {
+  transform: translateY(-4px);
+  border-color: #333;
+}
+
+.policy-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 12px;
+}
+
+.policy-card p {
+  font-size: 14px;
+  color: #888;
+  line-height: 1.7;
+}
+
+/* Shipping Table */
+.shipping-table-wrapper {
+  overflow-x: auto;
+  border-radius: 16px;
+  border: 1px solid #222;
+}
+
+.shipping-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #1a1a1a;
+}
+
+.shipping-table th,
+.shipping-table td {
+  padding: 20px 24px;
+  text-align: left;
+  border-bottom: 1px solid #222;
+}
+
+.shipping-table th {
+  background: #151515;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.shipping-table tr:last-child td {
+  border-bottom: none;
+}
+
+.shipping-table tr:hover {
+  background: #222;
+}
+
+.region-name {
+  font-weight: 600;
+  color: #fff;
+}
+
+.shipping-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shipping-time {
+  font-size: 14px;
+  color: #888;
+}
+
+.shipping-cost {
+  font-size: 16px;
+  font-weight: 600;
+  color: #4ade80;
+}
+
+.table-note {
+  font-size: 13px;
+  color: #666;
+  margin-top: 16px;
+  font-style: italic;
+}
+
+/* Shipping Methods */
+.methods-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.method-card {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 16px;
+  padding: 32px;
+  text-align: center;
+  position: relative;
+  transition: transform 0.3s, border-color 0.3s;
+}
+
+.method-card:hover {
+  transform: translateY(-4px);
+  border-color: #333;
+}
+
+.method-card.featured {
+  border-color: #ff6b6b;
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.05), rgba(255, 217, 61, 0.05));
+}
+
+.method-badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #ff6b6b, #ffd93d);
+  color: #0a0a0a;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 16px;
+  border-radius: 20px;
+}
+
+.method-icon {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.method-icon.standard {
+  background: rgba(96, 165, 250, 0.1);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.2);
+}
+
+.method-icon.express {
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.2);
+}
+
+.method-icon.freight {
+  background: rgba(167, 139, 250, 0.1);
+  color: #a78bfa;
+  border: 1px solid rgba(167, 139, 250, 0.2);
+}
+
+.method-card h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 12px;
+}
+
+.method-card > p {
+  font-size: 14px;
+  color: #888;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.method-features {
+  list-style: none;
+  text-align: left;
+}
+
+.method-features li {
+  font-size: 14px;
+  color: #888;
+  padding: 8px 0;
+  padding-left: 24px;
+  position: relative;
+  border-top: 1px solid #222;
+}
+
+.method-features li:first-child {
+  border-top: none;
+}
+
+.method-features li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: #4ade80;
+  font-weight: 600;
+}
+
+/* Tracking Section */
+.tracking-content {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 40px;
+  align-items: start;
+}
+
+.tracking-info p {
+  font-size: 16px;
+  color: #888;
+  line-height: 1.7;
+  margin-bottom: 32px;
+}
+
+.tracking-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.tracking-step {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.step-number {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #ff6b6b, #ffd93d);
+  color: #0a0a0a;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.step-content h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.step-content p {
+  font-size: 14px;
+  color: #888;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.tracking-box {
+  background: #1a1a1a;
+  border: 1px solid #222;
+  border-radius: 16px;
+  padding: 32px;
+}
+
+.tracking-box h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.tracking-box > p {
+  font-size: 14px;
+  color: #888;
+  margin-bottom: 20px;
+}
+
+.tracking-form {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.tracking-input {
+  flex: 1;
+  padding: 14px 16px;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 10px;
+  font-size: 15px;
+  color: #fff;
+  transition: border-color 0.2s;
+}
+
+.tracking-input::placeholder {
+  color: #555;
+}
+
+.tracking-input:focus {
+  outline: none;
+  border-color: #ff6b6b;
+}
+
+.carrier-links {
+  text-align: center;
+}
+
+.carrier-links > span {
+  font-size: 13px;
+  color: #666;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.carrier-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.carrier-link {
+  padding: 8px 16px;
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #888;
+  transition: all 0.2s;
+}
+
+.carrier-link:hover {
+  background: #333;
+  color: #fff;
+  border-color: #444;
+}
+
+/* FAQ Section */
+.faq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.faq-item {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.faq-item:hover {
+  border-color: #333;
+}
+
+.faq-item.open {
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+.faq-question {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s;
+  background: transparent;
+  border: none;
+}
+
+.faq-question:hover {
+  background: #1a1a1a;
+}
+
+.faq-icon {
+  color: #666;
+  transition: transform 0.3s, color 0.2s;
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+
+.faq-item.open .faq-icon {
+  transform: rotate(180deg);
+  color: #ff6b6b;
+}
+
+.faq-answer {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+}
+
+.faq-item.open .faq-answer {
+  max-height: 300px;
+}
+
+.faq-answer p {
+  padding: 0 24px 20px;
+  font-size: 15px;
+  color: #888;
+  line-height: 1.7;
+}
+
+/* CTA Section */
+.shipping-cta {
+  background: #111;
+  border-top: 1px solid #222;
+  text-align: center;
+  padding: 80px 24px;
+}
+
+.shipping-cta h2 {
+  font-size: 32px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 16px;
+}
+
+.shipping-cta > p {
+  font-size: 16px;
+  color: #888;
+  margin-bottom: 32px;
+}
+
+.cta-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.cta-buttons .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Button Styles */
+.btn {
+  padding: 14px 28px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.btn-primary {
+  background: #fff;
+  color: #0a0a0a;
+}
+
+.btn-primary:hover {
+  background: #e5e5e5;
+  transform: translateY(-2px);
+}
+
+.btn-outline {
+  background: transparent;
+  color: #fff;
+  border: 1px solid #333;
+}
+
+.btn-outline:hover {
+  background: #1a1a1a;
+  border-color: #444;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .shipping-hero-title {
+    font-size: 100px;
+    letter-spacing: 20px;
+  }
+
+  .shipping-hero-heading {
+    font-size: 40px;
+  }
+
+  .methods-grid {
+    grid-template-columns: 1fr;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+
+  .tracking-content {
+    grid-template-columns: 1fr;
+  }
+
+  .tracking-box {
+    order: -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .shipping-hero {
+    padding: 60px 24px;
+  }
+
+  .shipping-hero-title {
+    font-size: 60px;
+    letter-spacing: 10px;
+  }
+
+  .shipping-hero-heading {
+    font-size: 32px;
+  }
+
+  .shipping-hero-subtitle {
+    font-size: 16px;
+  }
+
+  .shipping-section {
+    padding: 60px 24px;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .section-header h2 {
+    font-size: 26px;
+  }
+
+  .policy-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .shipping-table th,
+  .shipping-table td {
+    padding: 16px;
+  }
+
+  .tracking-form {
+    flex-direction: column;
+  }
+
+  .shipping-cta {
+    padding: 60px 24px;
+  }
+
+  .shipping-cta h2 {
+    font-size: 28px;
+  }
+
+  .cta-buttons {
+    flex-direction: column;
+    max-width: 300px;
+    margin: 0 auto;
+  }
+
+  .faq-question {
+    padding: 16px 20px;
+    font-size: 15px;
+  }
+
+  .faq-answer p {
+    padding: 0 20px 16px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .shipping-hero-title {
+    font-size: 40px;
+    letter-spacing: 5px;
+  }
+
+  .shipping-hero-heading {
+    font-size: 28px;
+  }
+
+  .section-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .section-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .policy-card {
+    padding: 20px;
+  }
+
+  .method-card {
+    padding: 24px;
+  }
+
+  .tracking-box {
+    padding: 24px;
+  }
+
+  .shipping-table th,
+  .shipping-table td {
+    padding: 12px;
+    font-size: 13px;
+  }
+
+  .shipping-time {
+    font-size: 12px;
+  }
+
+  .shipping-cost {
+    font-size: 14px;
+  }
+}

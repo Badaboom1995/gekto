@@ -78,7 +78,7 @@ function HomePage() {
           </p>
           <div className="home-hero-actions">
             <Link to="/shop" className="btn btn-primary btn-large">
-              Browse Collection
+              Peppeeeee
             </Link>
             <Link to="/blog" className="btn btn-outline btn-large">
               Read Our Blog

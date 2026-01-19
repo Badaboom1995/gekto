@@ -1,22 +1,28 @@
 {
-  "name": "@gekto/server",
+  "name": "gektobot",
   "version": "0.0.5",
+  "description": "AI coding assistant widget - inject into any web app",
   "type": "module",
+  "bin": {
+    "gektobot": "./dist/proxy.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "GEKTO_DEV=1 tsx watch src/proxy.ts",
     "preview": "tsx watch src/proxy.ts",
-    "build": "tsc && node dist/proxy.js",
-    "start": "node dist/proxy.js"
+    "build": "tsc && cp -r ../widget/dist dist/widget",
+    "start": "node dist/proxy.js",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": ["ai", "coding", "assistant", "claude", "widget"],
+  "license": "MIT",
   "dependencies": {
-    "express": "^5.0.1",
-    "express-http-proxy": "^2.1.2",
     "node-pty": "^1.1.0-beta30",
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
-    "@types/express-http-proxy": "^1.6.7",
     "@types/node": "^22.10.2",
     "@types/ws": "^8.18.1",
     "tsx": "^4.21.0",

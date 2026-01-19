@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import http from 'http'
 import https from 'https'
 import fs from 'fs'
@@ -52,8 +53,10 @@ const DEV_MODE = process.env.GEKTO_DEV === '1'
 // Initialize store
 initStore()
 
-// Widget paths
-const WIDGET_DIST_PATH = path.resolve(__dirname, '../../widget/dist')
+// Widget paths - in dev mode use source, in production use bundled widget folder
+const WIDGET_DIST_PATH = DEV_MODE
+  ? path.resolve(__dirname, '../../widget/dist')
+  : path.resolve(__dirname, './widget')
 const WIDGET_JS_PATH = path.join(WIDGET_DIST_PATH, 'gekto-widget.iife.js')
 const WIDGET_CSS_PATH = path.join(WIDGET_DIST_PATH, 'style.css')
 

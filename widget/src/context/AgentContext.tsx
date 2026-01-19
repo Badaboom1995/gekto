@@ -4,6 +4,7 @@ interface ToolStatus {
   tool: string
   status: 'running' | 'completed'
   input?: string
+  fullInput?: Record<string, unknown>
 }
 
 interface PermissionRequest {
@@ -13,6 +14,7 @@ interface PermissionRequest {
 }
 
 type AgentState = 'ready' | 'working' | 'queued' | 'error'
+type GektoState = 'loading' | 'ready' | 'error'
 
 interface ActiveAgent {
   lizardId: string
@@ -21,12 +23,26 @@ interface ActiveAgent {
   queueLength: number
 }
 
+interface ToolMessage {
+  tool: string
+  input?: string
+  fullInput?: Record<string, unknown>
+  status: 'running' | 'completed'
+  startTime: Date
+  endTime?: Date
+}
+
 interface Message {
   id: string
   text: string
-  sender: 'user' | 'bot'
+  sender: 'user' | 'bot' | 'system'
   timestamp: Date
   isTerminal?: boolean
+  // Tool use data (if this is a tool message)
+  toolUse?: ToolMessage
+  // System message type for special UI
+  systemType?: 'mode' | 'status' | 'info'
+  systemData?: Record<string, unknown>
 }
 
 interface LizardSession {
@@ -60,6 +76,9 @@ interface AgentContextValue {
   killAgent: (lizardId: string) => void
   killAllAgents: () => void
 
+  // Gekto state (loading/ready)
+  gektoState: GektoState
+
   // Name extraction callback (set by SwarmContext)
   setNameExtractor: (extractor: (lizardId: string, name: string) => void) => void
 }
@@ -83,7 +102,21 @@ async function saveMessageToHistory(lizardId: string, message: Message) {
   try {
     // Load existing messages
     const res = await fetch(`/__gekto/api/chats/${lizardId}`)
-    const existing: Array<{ id: string; text: string; sender: string; timestamp: string; isTerminal?: boolean }> = await res.json() || []
+    const existing: Array<{
+      id: string
+      text: string
+      sender: string
+      timestamp: string
+      isTerminal?: boolean
+      toolUse?: {
+        tool: string
+        input?: string
+        fullInput?: Record<string, unknown>
+        status: 'running' | 'completed'
+        startTime: string
+        endTime?: string
+      }
+    }> = await res.json() || []
 
     // Add new message
     existing.push({
@@ -92,6 +125,14 @@ async function saveMessageToHistory(lizardId: string, message: Message) {
       sender: message.sender,
       timestamp: message.timestamp.toISOString(),
       isTerminal: message.isTerminal,
+      toolUse: message.toolUse ? {
+        tool: message.toolUse.tool,
+        input: message.toolUse.input,
+        fullInput: message.toolUse.fullInput,
+        status: message.toolUse.status,
+        startTime: message.toolUse.startTime.toISOString(),
+        endTime: message.toolUse.endTime?.toISOString(),
+      } : undefined,
     })
 
     // Save back
@@ -117,6 +158,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
   const [sessions, setSessions] = useState<Map<string, LizardSession>>(() => new Map())
   const [workingDir, setWorkingDir] = useState('')
   const [activeAgents, setActiveAgents] = useState<ActiveAgent[]>([])
+  const [gektoState, setGektoState] = useState<GektoState>('loading')
   const wsRef = useRef<WebSocket | null>(null)
 
   // Message listeners - ChatWindow can register to receive messages
@@ -142,7 +184,6 @@ export function AgentProvider({ children }: AgentProviderProps) {
     wsRef.current = ws
 
     ws.onopen = () => {
-      console.log('[Agent] Connected')
       // Expose WebSocket globally for GektoContext
       (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket = ws
       // Fetch active agents list on connect
@@ -167,6 +208,11 @@ export function AgentProvider({ children }: AgentProviderProps) {
             }
             break
 
+          case 'gekto_state':
+            console.log('[Agent] Gekto state:', msg.state)
+            setGektoState(msg.state as GektoState)
+            break
+
           case 'queued':
             if (lizardId) {
               updateSession(lizardId, { state: 'queued', queuePosition: msg.position })
@@ -175,13 +221,38 @@ export function AgentProvider({ children }: AgentProviderProps) {
 
           case 'tool':
             if (lizardId) {
-              updateSession(lizardId, {
-                currentTool: {
-                  tool: msg.tool,
-                  status: msg.status,
-                  input: msg.input,
+              const toolStatus: ToolStatus = {
+                tool: msg.tool,
+                status: msg.status,
+                input: msg.input,
+                fullInput: msg.fullInput,
+              }
+              updateSession(lizardId, { currentTool: toolStatus })
+
+              // Save tool use to chat history
+              if (msg.status === 'running') {
+                const toolMessage: Message = {
+                  id: `tool_${Date.now()}`,
+                  text: msg.tool,
+                  sender: 'bot',
+                  timestamp: new Date(),
+                  toolUse: {
+                    tool: msg.tool,
+                    input: msg.input,
+                    fullInput: msg.fullInput,
+                    status: 'running',
+                    startTime: new Date(),
+                  },
                 }
-              })
+                // Notify listener if chat is open
+                const listener = messageListenersRef.current.get(lizardId)
+                if (listener) {
+                  listener(toolMessage)
+                } else {
+                  // Save directly if chat is closed
+                  saveMessageToHistory(lizardId, toolMessage)
+                }
+              }
             }
             break
 
@@ -243,6 +314,8 @@ export function AgentProvider({ children }: AgentProviderProps) {
           case 'plan_updated':
           case 'plan_failed':
           case 'gekto_chat':
+          case 'gekto_classified':
+          case 'gekto_text':
           case 'gekto_remove':
           case 'task_started':
           case 'task_completed':
@@ -420,6 +493,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
     refreshAgentList,
     killAgent,
     killAllAgents,
+    gektoState,
     setNameExtractor,
   }
 
@@ -443,4 +517,4 @@ export function useAgentMessageListener(lizardId: string, onMessage: (message: M
   }, [lizardId, onMessage])
 }
 
-export type { Message, ToolStatus, PermissionRequest, AgentState }
+export type { Message, ToolMessage, ToolStatus, PermissionRequest, AgentState, GektoState }

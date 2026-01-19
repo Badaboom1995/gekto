@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ChatBubbleIcon, PlusCircledIcon, Cross2Icon } from '@radix-ui/react-icons'
 import { LizardAvatar } from './LizardAvatar'
 import { ChatWindow, getChatSize } from './ChatWindow'
 import { GektoPlanPanel } from './GektoPlanPanel'
@@ -37,13 +38,13 @@ export function MasterLizard() {
   const menuItems = [
     {
       id: 'chat',
-      icon: '💬',
+      icon: <ChatBubbleIcon width={20} height={20} />,
       label: 'Chat',
       onClick: () => openChat(MASTER_ID, 'task'),
     },
     {
       id: 'spawn',
-      icon: '🦎',
+      icon: <PlusCircledIcon width={20} height={20} />,
       label: 'Spawn Agent',
       onClick: () => {
         addLizard()
@@ -51,7 +52,7 @@ export function MasterLizard() {
     },
     {
       id: 'clear',
-      icon: '🧹',
+      icon: <Cross2Icon width={16} height={16} />,
       label: 'Clear All',
       onClick: () => {
         clearAllLizards()
@@ -61,9 +62,14 @@ export function MasterLizard() {
     },
   ]
 
-  // Shift+Enter to open master chat and focus input
+  // Shift+Enter to open master chat and focus input (but not when typing in textarea/input)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't capture if user is typing in an input or textarea
+      const target = e.target as HTMLElement
+      if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+        return
+      }
       if (e.shiftKey && e.key === 'Enter') {
         e.preventDefault()
         openChat(MASTER_ID, 'task')
@@ -114,7 +120,7 @@ export function MasterLizard() {
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        <LizardAvatar size={MASTER_LIZARD_SIZE} color={MASTER_COLOR} faceRight isSpinning={agentState === 'working'} />
+        <LizardAvatar size={MASTER_LIZARD_SIZE} color={MASTER_COLOR} faceRight />
 
         {/* Extended hover area for menu */}
         <div

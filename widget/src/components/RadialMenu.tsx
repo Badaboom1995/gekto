@@ -29,10 +29,13 @@ export function RadialMenu({
   const holdIdRef = useRef(0)
   const holdAnimationRef = useRef<number | null>(null)
 
-  const bubbleSize = 48
-  const dangerBubbleSize = 36
-  const gap = 12
-  const separatedGap = 12
+  const cardWidth = 40
+  const cardHeight = 48
+  const dangerCardWidth = 32
+  const dangerCardHeight = 36
+  const borderRadius = 12
+  const gap = 10
+  const separatedGap = 10
 
   // Clean up animation on unmount or when not visible
   useEffect(() => {
@@ -97,7 +100,8 @@ export function RadialMenu({
   const renderItem = (item: MenuItem, index: number, offsetX: number) => {
     const isHovered = hoveredItem === item.id
     const isHolding = holdingItem === item.id
-    const currentSize = item.danger ? dangerBubbleSize : bubbleSize
+    const currentWidth = item.danger ? dangerCardWidth : cardWidth
+    const currentHeight = item.danger ? dangerCardHeight : cardHeight
 
     return (
       <div
@@ -105,7 +109,7 @@ export function RadialMenu({
         className="absolute pointer-events-auto cursor-pointer"
         style={{
           ...(side === 'left' ? { right: offsetX } : { left: offsetX }),
-          top: 0,
+          top: (cardHeight - currentHeight) / 2,
           opacity: isVisible ? 1 : 0,
           transform: isVisible ? 'translateX(0)' : `translateX(${side === 'left' ? '20px' : '-20px'})`,
           transition: `opacity 0.2s ease-out ${index * 0.05}s, transform 0.2s ease-out ${index * 0.05}s`,
@@ -146,16 +150,16 @@ export function RadialMenu({
         >
           {isHolding ? 'Hold...' : item.label}
         </span>
-
-        {/* Bubble */}
+        {/* Card */}
         <div
-          className="relative flex items-center justify-center rounded-full transition-all duration-150"
+          className="relative flex items-center justify-center transition-all duration-150 overflow-hidden"
           style={{
-            width: currentSize,
-            height: currentSize,
+            width: currentWidth,
+            height: currentHeight,
+            borderRadius: borderRadius,
             background: item.danger
-              ? (isHovered ? 'rgba(220, 80, 80, 0.4)' : 'rgba(60, 30, 30, 0.85)')
-              : (isHovered ? 'rgba(255, 255, 255, 0.2)' : 'rgba(30, 30, 35, 0.85)'),
+              ? 'rgba(220, 80, 80, 0.4)'
+              : 'rgba(30, 30, 35, 0.6)',
             border: item.danger
               ? '1px solid rgba(220, 80, 80, 0.3)'
               : '1px solid rgba(255, 255, 255, 0.15)',
@@ -163,29 +167,17 @@ export function RadialMenu({
             transform: isHovered ? 'scale(1.1)' : 'scale(1)',
           }}
         >
-          {/* Progress ring for hold items */}
-          {item.holdDuration && isHolding && (
-            <svg
-              className="absolute inset-0"
-              style={{ width: currentSize, height: currentSize }}
-            >
-              <circle
-                cx={currentSize / 2}
-                cy={currentSize / 2}
-                r={(currentSize / 2) - 3}
-                fill="none"
-                stroke="rgba(220, 80, 80, 0.8)"
-                strokeWidth="3"
-                strokeDasharray={Math.PI * (currentSize - 6)}
-                strokeDashoffset={Math.PI * (currentSize - 6) * (1 - holdProgress)}
-                style={{
-                  transform: 'rotate(-90deg)',
-                  transformOrigin: 'center',
-                }}
-              />
-            </svg>
+          {/* Fill-up progress for hold items (like glass filling with water) */}
+          {item.holdDuration && (
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                top: isHolding ? `${(1 - holdProgress) * 100}%` : '100%',
+                background: 'rgba(239, 68, 68, 0.9)',
+              }}
+            />
           )}
-          <span style={{ fontSize: item.danger ? 16 : 20 }}>
+          <span className="relative z-10" style={{ fontSize: item.danger ? 16 : 20 }}>
             {item.icon}
           </span>
         </div>
@@ -195,7 +187,7 @@ export function RadialMenu({
 
   // Calculate positions from right to left
   const itemsWithOffsets = items.reduce<Array<{ item: MenuItem; index: number; offset: number }>>((acc, item, index) => {
-    const prevOffset = acc.length > 0 ? acc[acc.length - 1].offset + bubbleSize : 0
+    const prevOffset = acc.length > 0 ? acc[acc.length - 1].offset + cardWidth : 0
     const gapToAdd = index > 0 ? (item.separated ? separatedGap : gap) : 0
     const offset = prevOffset + gapToAdd
     acc.push({ item, index, offset })
@@ -208,8 +200,8 @@ export function RadialMenu({
       className="absolute pointer-events-none"
       style={{
         ...(side === 'left' ? { right: size - 10 } : { left: size - 10 }),
-        top: (size - bubbleSize) / 2,
-        height: bubbleSize,
+        top: (size - cardHeight) / 2,
+        height: cardHeight,
       }}
     >
       {itemsWithOffsets.map(({ item, index, offset }) => renderItem(item, index, offset))}

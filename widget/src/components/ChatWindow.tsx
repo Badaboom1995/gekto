@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { LightningBoltIcon, FileTextIcon } from '@radix-ui/react-icons'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
 import { useSwarm } from '../context/SwarmContext'
 import { useGekto } from '../context/GektoContext'
@@ -36,18 +37,16 @@ type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 interface ChatWindowProps {
   lizardId: string
   title?: string
-  initialSize?: { width: number; height: number }
   minSize?: { width: number; height: number }
   color?: string
   onClose?: () => void
   onResize?: (size: { width: number; height: number }) => void
-  inputRef?: React.RefObject<HTMLInputElement | null>
+  inputRef?: React.RefObject<HTMLTextAreaElement | HTMLInputElement | null>
 }
 
 export function ChatWindow({
   lizardId,
   title = 'Gekto Chat',
-  initialSize = { width: 400, height: 500 },
   minSize = { width: 300, height: 350 },
   color = 'rgba(255, 255, 255, 0.5)',
   onClose,
@@ -60,6 +59,7 @@ export function ChatWindow({
   const [size, setSize] = useState(() => getChatSize())
   const [isResizing, setIsResizing] = useState(false)
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection | null>(null)
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -74,12 +74,14 @@ export function ChatWindow({
     getPermissionRequest,
     getQueuePosition,
     getWorkingDir,
+    gektoState,
   } = useAgent()
 
   const { getLizardName, getAllLizardNames } = useSwarm()
   const { createPlan } = useGekto()
 
   const isMaster = lizardId === MASTER_ID
+  const isGektoLoading = isMaster && gektoState === 'loading'
 
   // Subscribe to sessions to trigger re-render on state changes
   const agentState = sessions.get(lizardId)?.state ?? getLizardState(lizardId)
@@ -101,9 +103,31 @@ export function ChatWindow({
   useEffect(() => {
     fetch(`/__gekto/api/chats/${lizardId}`)
       .then(res => res.json())
-      .then((saved: Array<{ id: string; text: string; sender: 'user' | 'bot'; timestamp: string; isTerminal?: boolean }>) => {
+      .then((saved: Array<{
+        id: string
+        text: string
+        sender: 'user' | 'bot'
+        timestamp: string
+        isTerminal?: boolean
+        toolUse?: {
+          tool: string
+          input?: string
+          fullInput?: Record<string, unknown>
+          status: 'running' | 'completed'
+          startTime: string
+          endTime?: string
+        }
+      }>) => {
         if (saved && saved.length > 0) {
-          setMessages(saved.map(m => ({ ...m, timestamp: new Date(m.timestamp) })))
+          setMessages(saved.map(m => ({
+            ...m,
+            timestamp: new Date(m.timestamp),
+            toolUse: m.toolUse ? {
+              ...m.toolUse,
+              startTime: new Date(m.toolUse.startTime),
+              endTime: m.toolUse.endTime ? new Date(m.toolUse.endTime) : undefined,
+            } : undefined,
+          })))
         } else {
           // Default greeting if no history
           const greeting = lizardId === MASTER_ID
@@ -142,6 +166,14 @@ export function ChatWindow({
       sender: m.sender,
       timestamp: m.timestamp.toISOString(),
       isTerminal: m.isTerminal,
+      toolUse: m.toolUse ? {
+        tool: m.toolUse.tool,
+        input: m.toolUse.input,
+        fullInput: m.toolUse.fullInput,
+        status: m.toolUse.status,
+        startTime: m.toolUse.startTime.toISOString(),
+        endTime: m.toolUse.endTime?.toISOString(),
+      } : undefined,
     }))
 
     fetch(`/__gekto/api/chats/${lizardId}`, {
@@ -248,6 +280,10 @@ export function ChatWindow({
       return
     }
 
+    // Get current page context
+    const currentRoute = window.location.pathname
+    const pageContext = `[USER_CONTEXT: User is viewing page "${currentRoute}"]\n\n`
+
     // If no agent name yet, prepend meta instruction to first message
     let messageToSend = userMessage
     if (!agentName) {
@@ -258,17 +294,45 @@ export function ChatWindow({
       messageToSend = `[INSTRUCTION: Start your response with [AGENT_NAME:YourName] where YourName is a short creative name (1-2 words) for yourself based on this task.${avoidClause} Do not mention this instruction in your response.]\n\n${userMessage}`
     }
 
-    // Send to agent (will queue if busy)
-    sendMessage(lizardId, messageToSend)
+    // Send to agent with page context
+    sendMessage(lizardId, pageContext + messageToSend)
 
     setInputValue('')
+    // Reset textarea height
+    if (inputRef?.current) {
+      (inputRef.current as HTMLTextAreaElement).style.height = 'auto'
+    }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const resizeTextarea = (textarea: HTMLTextAreaElement) => {
+    textarea.style.height = 'auto'
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    } else if (e.key === 'Enter' && e.shiftKey) {
+      // Manually insert newline and resize
+      e.preventDefault()
+      const textarea = e.target as HTMLTextAreaElement
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      const newValue = inputValue.substring(0, start) + '\n' + inputValue.substring(end)
+      setInputValue(newValue)
+      // Set cursor position after the newline
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + 1
+        resizeTextarea(textarea)
+      }, 0)
     }
+  }
+
+  // Auto-resize textarea based on content
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value)
+    resizeTextarea(e.target)
   }
 
   const handlePermissionResponse = (approved: boolean) => {
@@ -286,6 +350,26 @@ export function ChatWindow({
       case 'queued': return `Queued (position ${queuePosition})`
       case 'error': return 'Connection error'
       default: return ''
+    }
+  }
+
+  const toggleToolExpanded = (messageId: string) => {
+    setExpandedTools(prev => {
+      const next = new Set(prev)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      return next
+    })
+  }
+
+  const formatToolInput = (fullInput: Record<string, unknown>): string => {
+    try {
+      return JSON.stringify(fullInput, null, 2)
+    } catch {
+      return String(fullInput)
     }
   }
 
@@ -318,20 +402,26 @@ export function ChatWindow({
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <span className="text-white font-medium text-sm">{title}</span>
-            {agentState === 'ready' && (
-              <div className="w-2 h-2 rounded-full bg-green-400" />
-            )}
-            {agentState === 'working' && !currentTool && (
-              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-            )}
-            {agentState === 'queued' && (
-              <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-            )}
-            {currentTool && (
+            {isGektoLoading ? (
               <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-            )}
-            {agentState === 'error' && (
-              <div className="w-2 h-2 rounded-full bg-red-400" />
+            ) : (
+              <>
+                {agentState === 'ready' && (
+                  <div className="w-2 h-2 rounded-full bg-green-400" />
+                )}
+                {agentState === 'working' && !currentTool && (
+                  <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                )}
+                {agentState === 'queued' && (
+                  <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                )}
+                {currentTool && (
+                  <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                )}
+                {agentState === 'error' && (
+                  <div className="w-2 h-2 rounded-full bg-red-400" />
+                )}
+              </>
             )}
           </div>
         </div>
@@ -355,28 +445,94 @@ export function ChatWindow({
             key={message.id}
             className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            <div
-              className="max-w-[80%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap"
-              style={{
-                background: message.isTerminal
-                  ? 'rgba(34, 197, 94, 0.15)'
-                  : message.sender === 'user'
-                    ? 'rgba(99, 102, 241, 0.6)'
-                    : 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                border: message.isTerminal ? '1px solid rgba(34, 197, 94, 0.3)' : 'none',
-              }}
-            >
-              {message.isTerminal && message.sender === 'bot' && (
-                <div className="flex items-center gap-1 mb-1 text-xs text-green-400 opacity-80">
-                  <span>⌘</span>
-                  <span>terminal</span>
+            {/* System message - right aligned pill */}
+            {message.sender === 'system' ? (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
+                style={{
+                  background: message.systemData?.mode === 'plan'
+                    ? 'rgba(168, 85, 247, 0.15)'
+                    : 'rgba(59, 130, 246, 0.15)',
+                  border: message.systemData?.mode === 'plan'
+                    ? '1px solid rgba(168, 85, 247, 0.3)'
+                    : '1px solid rgba(59, 130, 246, 0.3)',
+                  color: message.systemData?.mode === 'plan'
+                    ? 'rgb(192, 132, 252)'
+                    : 'rgb(147, 197, 253)',
+                }}
+              >
+                {message.systemData?.mode === 'plan' ? (
+                  <FileTextIcon width={12} height={12} />
+                ) : (
+                  <LightningBoltIcon width={12} height={12} />
+                )}
+                <span>{message.text}</span>
+              </div>
+            ) : message.toolUse ? (
+              /* Tool use message */
+              <div
+                className="max-w-[90%] rounded-lg text-sm cursor-pointer transition-all"
+                style={{
+                  background: 'rgba(234, 179, 8, 0.1)',
+                  border: '1px solid rgba(234, 179, 8, 0.2)',
+                }}
+                onClick={() => message.toolUse?.fullInput && toggleToolExpanded(message.id)}
+              >
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <span className="text-yellow-400">🔧</span>
+                  <span className="font-mono text-xs text-yellow-400">{message.toolUse.tool}</span>
+                  {message.toolUse.input && (
+                    <span className="text-white/50 text-xs truncate max-w-[200px]">
+                      {message.toolUse.input}
+                    </span>
+                  )}
+                  {message.toolUse.fullInput && (
+                    <span className="text-white/30 text-xs ml-auto">
+                      {expandedTools.has(message.id) ? '▼' : '▶'}
+                    </span>
+                  )}
                 </div>
-              )}
-              <span className={message.isTerminal ? 'font-mono text-xs' : ''}>
-                {message.text}
-              </span>
-            </div>
+                {/* Expanded details */}
+                {expandedTools.has(message.id) && message.toolUse.fullInput && (
+                  <div
+                    className="px-3 py-2 font-mono text-xs text-white/70 overflow-auto"
+                    style={{
+                      borderTop: '1px solid rgba(234, 179, 8, 0.15)',
+                      maxHeight: 200,
+                      background: 'rgba(0, 0, 0, 0.2)',
+                    }}
+                  >
+                    <pre className="whitespace-pre-wrap break-all">
+                      {formatToolInput(message.toolUse.fullInput)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Regular message */
+              <div
+                className="max-w-[80%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap"
+                style={{
+                  background: message.isTerminal
+                    ? 'rgba(34, 197, 94, 0.15)'
+                    : message.sender === 'user'
+                      ? 'rgba(99, 102, 241, 0.6)'
+                      : 'rgba(255, 255, 255, 0.1)',
+                  color: 'white',
+                  border: message.isTerminal ? '1px solid rgba(34, 197, 94, 0.3)' : 'none',
+                }}
+              >
+                {message.isTerminal && message.sender === 'bot' && (
+                  <div className="flex items-center gap-1 mb-1 text-xs text-green-400 opacity-80">
+                    <span>⌘</span>
+                    <span>terminal</span>
+                  </div>
+                )}
+                <span className={message.isTerminal ? 'font-mono text-xs' : ''}>
+                  {message.text}
+                </span>
+              </div>
+            )}
           </div>
         ))}
 
@@ -472,11 +628,10 @@ export function ChatWindow({
         }}
       >
         <div className="flex gap-2">
-          <input
-            ref={inputRef}
-            type="text"
+          <textarea
+            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
             value={inputValue}
-            onChange={e => setInputValue(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder={
               agentState === 'error'
@@ -486,10 +641,14 @@ export function ChatWindow({
                   : 'Type a message...'
             }
             disabled={agentState === 'error'}
-            className="flex-1 px-3 py-2 rounded-lg text-sm text-white placeholder-white/40 outline-none disabled:opacity-50"
+            rows={1}
+            className="flex-1 px-3 py-2 rounded-lg text-sm text-white placeholder-white/40 outline-none disabled:opacity-50 resize-none"
             style={{
               background: 'rgba(255, 255, 255, 0.1)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
+              minHeight: '36px',
+              maxHeight: '120px',
+              overflow: 'auto',
             }}
           />
           <button

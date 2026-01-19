@@ -2,8 +2,33 @@ import { WebSocket, WebSocketServer } from 'ws'
 import type { Server } from 'http'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
-import { sendMessage, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket } from './agentPool'
-import { processWithTools, type ExecutionPlan } from './gektoTools'
+import { sendMessage, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket } from './agentPool.js'
+import { processWithTools, type ExecutionPlan } from './gektoTools.js'
+import { initGekto, sendToGekto, getGektoState, type GektoCallbacks } from './gektoPersistent.js'
+
+// Track connected clients to broadcast Gekto state
+const connectedClients = new Set<WebSocket>()
+let gektoInitialized = false
+
+function broadcastGektoState(state: 'loading' | 'ready' | 'error') {
+  const message = JSON.stringify({ type: 'gekto_state', state })
+  for (const client of connectedClients) {
+    if (client.readyState === 1) { // WebSocket.OPEN
+      client.send(message)
+    }
+  }
+}
+
+// Summarize tool input for display
+function summarizeToolInput(input?: Record<string, unknown>): string {
+  if (!input) return ''
+  if (input.file_path) return String(input.file_path)
+  if (input.pattern) return String(input.pattern)
+  if (input.command) return String(input.command).substring(0, 50)
+  if (input.path) return String(input.path)
+  if (input.query) return String(input.query).substring(0, 50)
+  return ''
+}
 
 // Store active plans
 const activePlans = new Map<string, ExecutionPlan>()
@@ -24,11 +49,23 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
   wss.on('connection', (ws: WebSocket) => {
     console.log('[Agent] New connection')
 
+    // Track connected clients for Gekto state broadcasts
+    connectedClients.add(ws)
+
+    // Initialize Gekto on first connection (with state broadcast callback)
+    if (!gektoInitialized) {
+      initGekto(getWorkingDir(), broadcastGektoState)
+      gektoInitialized = true
+    }
+
     // Attach this WebSocket to all existing sessions (for reconnection)
     attachWebSocket(ws)
 
     // Send working directory info
     ws.send(JSON.stringify({ type: 'info', workingDir: getWorkingDir() }))
+
+    // Send current Gekto state
+    ws.send(JSON.stringify({ type: 'gekto_state', state: getGektoState() }))
 
     // Send current state for all active sessions
     const activeSessions = getActiveSessions()
@@ -81,70 +118,93 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             return
 
           case 'create_plan':
-            // Process message with Gekto tools
+            // Two-mode Gekto: classify first, then direct or plan
             console.log('[Agent] Processing Gekto message:', msg.prompt?.substring(0, 50))
 
             // Set master lizard to working state
             ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'working' }))
 
             try {
-              // Use lizards from client if provided, otherwise fall back to server sessions
-              const clientLizards = msg.lizards || []
-              const activeAgents = clientLizards.length > 0
-                ? clientLizards.map((l: { id: string; isWorker?: boolean }) => ({
-                    lizardId: l.id,
-                    isProcessing: false,
-                    queueLength: 0,
-                    isWorker: l.isWorker,
+              // Create callbacks for streaming events to client
+              const callbacks: GektoCallbacks = {
+                onClassified: (mode) => {
+                  console.log('[Agent] Gekto classified as:', mode)
+                  ws.send(JSON.stringify({
+                    type: 'gekto_classified',
+                    planId: msg.planId,
+                    mode,
                   }))
-                : getActiveSessions()
+                },
+                onToolStart: (tool, input) => {
+                  ws.send(JSON.stringify({
+                    type: 'tool',
+                    lizardId: 'master',
+                    status: 'running',
+                    tool,
+                    input: summarizeToolInput(input),
+                    fullInput: input,
+                  }))
+                },
+                onToolEnd: (tool) => {
+                  ws.send(JSON.stringify({
+                    type: 'tool',
+                    lizardId: 'master',
+                    status: 'completed',
+                    tool,
+                  }))
+                },
+                onText: (text) => {
+                  ws.send(JSON.stringify({
+                    type: 'gekto_text',
+                    planId: msg.planId,
+                    text,
+                  }))
+                },
+              }
 
-              console.log('[Agent] Available agents for removal:', activeAgents.map((a: { lizardId: string }) => a.lizardId))
+              const response = await sendToGekto(msg.prompt, callbacks)
 
-              const response = await processWithTools(
-                msg.prompt,
-                msg.planId,
-                getWorkingDir(),
-                activeAgents
-              )
+              if (response.mode === 'plan') {
+                // Plan mode - use gektoTools for task breakdown
+                console.log('[Agent] Switching to plan mode')
+                const planResult = await processWithTools(
+                  msg.prompt,
+                  msg.planId,
+                  getWorkingDir(),
+                  getActiveSessions()
+                )
 
-              switch (response.type) {
-                case 'chat':
-                  // Gekto responded with a chat message
+                if (planResult.type === 'build' && planResult.plan) {
+                  activePlans.set(msg.planId, planResult.plan)
+                  ws.send(JSON.stringify({
+                    type: 'plan_created',
+                    planId: msg.planId,
+                    plan: planResult.plan,
+                  }))
+                } else if (planResult.type === 'remove' && planResult.removedAgents) {
+                  ws.send(JSON.stringify({
+                    type: 'gekto_remove',
+                    planId: msg.planId,
+                    agents: planResult.removedAgents,
+                  }))
+                } else {
                   ws.send(JSON.stringify({
                     type: 'gekto_chat',
                     planId: msg.planId,
-                    message: response.message,
+                    message: planResult.message || 'Plan created.',
                   }))
-                  break
-
-                case 'build':
-                  // Gekto created a plan
-                  if (response.plan) {
-                    activePlans.set(response.plan.id, response.plan)
-                    ws.send(JSON.stringify({ type: 'plan_created', plan: response.plan }))
-                  }
-                  break
-
-                case 'remove':
-                  // Gekto wants to remove agents
-                  if (response.removedAgents && response.removedAgents.length > 0) {
-                    for (const agentId of response.removedAgents) {
-                      killSession(agentId)
-                    }
-                    ws.send(JSON.stringify({
-                      type: 'gekto_remove',
-                      planId: msg.planId,
-                      removedAgents: response.removedAgents,
-                    }))
-                  } else {
-                    ws.send(JSON.stringify({
-                      type: 'gekto_chat',
-                      planId: msg.planId,
-                      message: 'No agents to remove.',
-                    }))
-                  }
-                  break
+                }
+              } else {
+                // Direct mode - response already sent via callbacks
+                ws.send(JSON.stringify({
+                  type: 'gekto_chat',
+                  planId: msg.planId,
+                  message: response.message,
+                  timing: {
+                    classifyMs: response.classifyMs,
+                    workMs: response.workMs,
+                  },
+                }))
               }
 
               ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'ready' }))
@@ -220,6 +280,7 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
 
     ws.on('close', () => {
       console.log('[Agent] Connection closed')
+      connectedClients.delete(ws)
     })
 
     ws.on('error', (err) => {

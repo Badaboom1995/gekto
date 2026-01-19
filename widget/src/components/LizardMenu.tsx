@@ -1,4 +1,5 @@
 import { useRef, useMemo } from 'react'
+import { ColorWheelIcon, TrashIcon } from '@radix-ui/react-icons'
 import { RadialMenu } from './RadialMenu'
 import { useSwarm } from '../context/SwarmContext'
 
@@ -54,7 +55,7 @@ export function LizardMenu({ lizardId, isVisible, size, onHide, onShake }: Lizar
   const menuItems = [
     {
       id: 'color',
-      icon: '🎨',
+      icon: <ColorWheelIcon width={20} height={20} />,
       label: 'Color',
       onClick: () => {
         colorInputRef.current?.click()
@@ -62,7 +63,7 @@ export function LizardMenu({ lizardId, isVisible, size, onHide, onShake }: Lizar
     },
     {
       id: 'delete',
-      icon: '🗑',
+      icon: <TrashIcon width={16} height={16} />,
       label: 'Delete',
       separated: true,
       danger: true,

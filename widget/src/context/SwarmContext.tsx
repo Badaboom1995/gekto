@@ -124,14 +124,15 @@ function parseHue(color: string): number | null {
 
 function randomDistinctColor(existingColors: string[]): string {
   const existingHues = existingColors.map(parseHue).filter((h): h is number => h !== null)
-  const MIN_HUE_DISTANCE = 30
+  const MIN_HUE_DISTANCE = 45 // Larger distance for more distinct colors
 
   // Try to find a hue that's far enough from all existing hues
   let bestHue = Math.floor(Math.random() * 360)
   let bestMinDistance = 0
 
-  for (let attempt = 0; attempt < 36; attempt++) {
-    const candidateHue = (attempt * 10 + Math.floor(Math.random() * 10)) % 360
+  // Try more attempts with larger steps for better distribution
+  for (let attempt = 0; attempt < 72; attempt++) {
+    const candidateHue = (attempt * 5 + Math.floor(Math.random() * 5)) % 360
     let minDistance = 180
 
     for (const existingHue of existingHues) {
@@ -381,20 +382,47 @@ export function SwarmProvider({
   }, [])
 
   // Worker lizard spawning for Gekto orchestration
+  // Use refs to track spawns that happen in quick succession
   const workerCountRef = useRef(0)
+  const recentWorkerColorsRef = useRef<string[]>([])
+  const pendingWorkerCountRef = useRef(0)
 
   const spawnWorkerLizard = useCallback((taskId: string, description: string): string => {
     const id = `worker_${Date.now()}_${workerCountRef.current++}`
-    const existingColors = lizardsRef.current.map(l => l.settings?.color ?? defaultSettings.color)
-    const newColor = randomDistinctColor(existingColors)
 
-    // Position workers in bottom-right, stacked vertically
-    const workerIndex = lizardsRef.current.filter(l => l.settings?.isWorker).length
+    // Get all existing colors including recently spawned workers (for distinct colors)
+    const existingColors = [
+      ...lizardsRef.current.map(l => l.settings?.color ?? defaultSettings.color),
+      ...recentWorkerColorsRef.current,
+    ]
+    const newColor = randomDistinctColor(existingColors)
+    recentWorkerColorsRef.current.push(newColor)
+
+    // Clear recent colors after a short delay (batch spawns are done)
+    setTimeout(() => {
+      recentWorkerColorsRef.current = []
+      pendingWorkerCountRef.current = 0
+    }, 500)
+
+    // Position workers in grid pattern (like arrange does)
+    // Use ALL lizards count + pending spawns for proper grid positioning
+    const totalLizards = lizardsRef.current.length + pendingWorkerCountRef.current
+    pendingWorkerCountRef.current++
+
     const WORKER_SIZE = 90
-    const GAP = -20
+    const GAP = -30
+    const padding = 30
+    const originX = window.innerWidth - WORKER_SIZE - padding
+    const originY = window.innerHeight - WORKER_SIZE - padding
+
+    // Grid layout: fill vertically first, then move left
+    const rows = Math.floor((window.innerHeight * 0.7) / (WORKER_SIZE + GAP)) || 1
+    const row = totalLizards % rows
+    const col = Math.floor(totalLizards / rows)
+
     const position = {
-      x: window.innerWidth - WORKER_SIZE - 30,
-      y: window.innerHeight - WORKER_SIZE - 30 - (workerIndex * (WORKER_SIZE + GAP)),
+      x: originX - col * (WORKER_SIZE + GAP),
+      y: originY - row * (WORKER_SIZE + GAP),
     }
 
     setLizards(prev => [...prev, {

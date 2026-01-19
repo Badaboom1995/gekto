@@ -250,8 +250,39 @@ export function GektoProvider({ children }: GektoProviderProps) {
     prompt?: string
     message?: string
     removedAgents?: string[]
+    mode?: string
+    text?: string
+    timing?: { classifyMs?: number; workMs?: number }
   }) => {
     switch (msg.type) {
+      case 'gekto_classified':
+        // Show mode badge only if mode changed (tracked via window)
+        console.log('[Gekto] Classified as:', msg.mode)
+        {
+          const win = window as unknown as { __gektoLastMode?: string }
+          if (win.__gektoLastMode !== msg.mode) {
+            win.__gektoLastMode = msg.mode
+            const listener = (window as unknown as { __agentMessageListeners?: Map<string, (message: { id: string; text: string; sender: 'system'; timestamp: Date; systemType: string; systemData: Record<string, unknown> }) => void> }).__agentMessageListeners?.get('master')
+            if (listener) {
+              listener({
+                id: `classify_${Date.now()}`,
+                text: msg.mode === 'direct' ? 'Working directly' : 'Creating plan',
+                sender: 'system',
+                timestamp: new Date(),
+                systemType: 'mode',
+                systemData: { mode: msg.mode },
+              })
+            }
+          }
+        }
+        break
+
+      case 'gekto_text':
+        // Streaming text from Gekto (optional - could be used for live updates)
+        // For now, we wait for the final gekto_chat message
+        console.log('[Gekto] Streaming text:', msg.text?.substring(0, 30))
+        break
+
       case 'gekto_chat':
         // Gekto responded with a chat message (not a task)
         console.log('[Gekto] Chat response:', msg.message?.substring(0, 50))

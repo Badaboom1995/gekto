@@ -1,6 +1,6 @@
 import path from 'path'
 import { WebSocket } from 'ws'
-import { HeadlessAgent, type StreamCallbacks, type AgentResponse } from './HeadlessAgent'
+import { HeadlessAgent, type StreamCallbacks, type AgentResponse } from './HeadlessAgent.js'
 
 interface QueuedMessage {
   message: string
@@ -87,6 +87,7 @@ export async function sendMessage(
         status: 'running',
         tool,
         input: input ? summarizeInput(input) : undefined,
+        fullInput: input,  // Send full input for expandable view
       })
     },
     onToolEnd: (tool: string) => {

@@ -1,10 +1,18 @@
 import { useState } from 'react'
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import './App.css'
+import AboutPage from './pages/AboutPage'
+import ArticleDetailPage from './pages/ArticleDetailPage'
+import ArticlesPage from './pages/ArticlesPage'
+import BasketPage from './pages/BasketPage'
 import BlogPage from './pages/BlogPage'
+import ContactsPage from './pages/ContactsPage'
+import FAQPage from './pages/FAQPage'
 import HomePage from './pages/HomePage'
 import ProfilePage from './pages/ProfilePage'
 import ProductDetailPage from './pages/ProductDetailPage'
+import ShippingPage from './pages/ShippingPage'
+import TeamPage from './pages/TeamPage'
 
 interface Product {
   id: number
@@ -47,8 +55,9 @@ function Header() {
         </Link>
         <nav className="nav">
           <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>Home</Link>
-          <Link to="/shop" className={`nav-link ${location.pathname === '/shop' ? 'active' : ''}`}>Shop</Link>
           <Link to="/blog" className={`nav-link ${location.pathname === '/blog' ? 'active' : ''}`}>Blog</Link>
+          <Link to="/shipping" className={`nav-link ${location.pathname === '/shipping' ? 'active' : ''}`}>Shipping</Link>
+          <Link to="/faq" className={`nav-link ${location.pathname === '/faq' ? 'active' : ''}`}>FAQ</Link>
         </nav>
         <div className="header-actions">
           <button className="icon-btn">
@@ -57,14 +66,14 @@ function Header() {
               <path d="m21 21-4.35-4.35"/>
             </svg>
           </button>
-          <button className="icon-btn cart-btn">
+          <Link to="/basket" className="icon-btn cart-btn">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="9" cy="21" r="1"/>
               <circle cx="20" cy="21" r="1"/>
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
             </svg>
             <span className="cart-badge">3</span>
-          </button>
+          </Link>
           <Link to="/profile" className="avatar">
             <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=retro" alt="User" />
           </Link>
@@ -78,7 +87,7 @@ function HeroBanner() {
   return (
     <div className="hero-banner">
       <div className="hero-overlay">
-        <h1 className="hero-title">Shop</h1>
+        <h1 className="hero-title">Peppeeeee</h1>
       </div>
       <div className="hero-search">
         <h2 className="hero-subtitle">Find Your Classic Machine</h2>
@@ -269,18 +278,19 @@ function Footer() {
         <div className="footer-section">
           <h4>About</h4>
           <ul>
+            <li><Link to="/about">About Us</Link></li>
             <li><a href="#">Blog</a></li>
-            <li><a href="#">Meet The Team</a></li>
-            <li><a href="#">Contact Us</a></li>
+            <li><Link to="/team">Meet The Team</Link></li>
+            <li><Link to="/contacts">Contact Us</Link></li>
           </ul>
         </div>
         <div className="footer-section">
           <h4>Support</h4>
           <ul>
-            <li><a href="#">Contact Us</a></li>
-            <li><a href="#">Shipping</a></li>
+            <li><Link to="/contacts">Contact Us</Link></li>
+            <li><Link to="/shipping">Shipping</Link></li>
             <li><a href="#">Return</a></li>
-            <li><a href="#">FAQ</a></li>
+            <li><Link to="/faq">FAQ</Link></li>
           </ul>
         </div>
         <div className="footer-section social">
@@ -342,7 +352,15 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/shop" element={<ShopPage />} />
         <Route path="/product/:id" element={<ProductDetailPage />} />
+        <Route path="/articles" element={<ArticlesPage />} />
+        <Route path="/articles/:slug" element={<ArticleDetailPage />} />
+        <Route path="/basket" element={<BasketPage />} />
         <Route path="/blog" element={<BlogPage />} />
+        <Route path="/team" element={<TeamPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/shipping" element={<ShippingPage />} />
+        <Route path="/contacts" element={<ContactsPage />} />
+        <Route path="/faq" element={<FAQPage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Routes>
       <Footer />
