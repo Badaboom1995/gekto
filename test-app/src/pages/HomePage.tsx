@@ -1,4 +1,7 @@
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import RecommendationBlock, { RecommendationItem } from '../components/RecommendationBlock'
+import SearchBar from '../components/SearchBar'
 import './HomePage.css'
 
 interface FeaturedProduct {
@@ -60,13 +63,121 @@ const stats = [
   { value: '15', label: 'Years Experience' }
 ]
 
+const recommendedItems: RecommendationItem[] = [
+  {
+    id: 1,
+    title: 'ZX Spectrum 48K',
+    description: 'The British home computer that revolutionized gaming. Features rubber keys and iconic rainbow stripe.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/3/33/ZXSpectrum48k.jpg',
+    price: 199.00,
+    rating: 4.8,
+    badge: 'Popular',
+    category: 'Home Computer',
+    link: '/shop/zx-spectrum'
+  },
+  {
+    id: 2,
+    title: 'IBM PC 5150',
+    description: 'The original IBM Personal Computer that defined the industry standard for decades.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/f/f1/Ibm_pc_5150.jpg',
+    price: 549.00,
+    rating: 4.9,
+    badge: 'Rare Find',
+    category: 'Business',
+    link: '/shop/ibm-pc-5150'
+  },
+  {
+    id: 3,
+    title: 'Atari 800XL',
+    description: 'Advanced 8-bit home computer with excellent graphics and sound capabilities.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/0/00/Atari_800XL.jpg',
+    price: 279.00,
+    rating: 4.7,
+    category: 'Home Computer',
+    link: '/shop/atari-800xl'
+  },
+  {
+    id: 4,
+    title: 'BBC Micro Model B',
+    description: 'Educational computer that taught a generation to code. Built like a tank.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/3/32/BBC_Micro_Front_Restored.jpg',
+    price: 329.00,
+    rating: 4.6,
+    badge: 'Staff Pick',
+    category: 'Educational',
+    link: '/shop/bbc-micro'
+  }
+]
+
+const trendingItems: RecommendationItem[] = [
+  {
+    id: 5,
+    title: 'Original Joystick Collection',
+    description: 'Authentic vintage joysticks for C64, Amiga, and Atari. Fully refurbished.',
+    price: 49.00,
+    rating: 4.5,
+    category: 'Accessories',
+    link: '/shop/joysticks'
+  },
+  {
+    id: 6,
+    title: 'Floppy Disk Archive',
+    description: '100+ classic games and software on original 5.25" disks. Tested and working.',
+    price: 89.00,
+    rating: 4.8,
+    badge: 'Bundle',
+    category: 'Software',
+    link: '/shop/floppy-archive'
+  },
+  {
+    id: 7,
+    title: 'CRT Monitor - Restored',
+    description: 'Period-correct display for authentic retro computing experience.',
+    price: 149.00,
+    rating: 4.4,
+    category: 'Display',
+    link: '/shop/crt-monitor'
+  }
+]
+
 function HomePage() {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isSearching, setIsSearching] = useState(false)
+
+  // Combine all searchable items
+  const allItems = useMemo(() => [
+    ...featuredProducts.map(p => ({ ...p, type: 'product' as const })),
+    ...categories.map(c => ({ ...c, type: 'category' as const })),
+    ...recommendedItems.map(r => ({ ...r, name: r.title, type: 'recommended' as const })),
+    ...trendingItems.map(t => ({ ...t, name: t.title, type: 'trending' as const })),
+  ], [])
+
+  // Filter items based on search query
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return null
+
+    const query = searchQuery.toLowerCase()
+    return allItems.filter(item => {
+      const name = item.name.toLowerCase()
+      const description = 'description' in item ? item.description?.toLowerCase() || '' : ''
+      const category = 'category' in item ? item.category?.toLowerCase() || '' : ''
+      return name.includes(query) || description.includes(query) || category.includes(query)
+    })
+  }, [searchQuery, allItems])
+
+  const handleSearch = (value: string) => {
+    setIsSearching(true)
+    setSearchQuery(value)
+    // Simulate a brief loading state for better UX
+    setTimeout(() => setIsSearching(false), 200)
+  }
+
   return (
     <div className="home-page">
       {/* Hero Section */}
       <section className="home-hero">
         <div className="home-hero-content">
-          <span className="home-hero-badge">Welcome to RetroPC</span>
+          <span className="home-hero-badge">Welcome to ClassicPC</span>
           <h1 className="home-hero-title">
             Discover the<br />
             <span className="highlight">Golden Era</span><br />
@@ -76,9 +187,69 @@ function HomePage() {
             Explore our curated collection of vintage computers, from the iconic Commodore 64
             to the revolutionary Macintosh. Each machine tells a story of innovation.
           </p>
+
+          {/* Search Bar */}
+          <div className="home-hero-search">
+            <SearchBar
+              placeholder="Search vintage computers, accessories, software..."
+              onSearch={handleSearch}
+              debounceDelay={300}
+              size="large"
+              isLoading={isSearching}
+            />
+            {searchResults && searchResults.length > 0 && (
+              <div className="search-results-dropdown">
+                <div className="search-results-header">
+                  Found {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
+                </div>
+                <div className="search-results-list">
+                  {searchResults.slice(0, 5).map((item, index) => (
+                    <Link
+                      key={`${item.type}-${index}`}
+                      to={item.type === 'category' ? '/shop' : ('link' in item ? item.link || '/shop' : '/shop')}
+                      className="search-result-item"
+                    >
+                      {'image' in item && item.image && (
+                        <img src={item.image} alt={item.name} className="search-result-image" />
+                      )}
+                      {'icon' in item && (
+                        <span className="search-result-icon">{item.icon}</span>
+                      )}
+                      <div className="search-result-info">
+                        <span className="search-result-name">{item.name}</span>
+                        <span className="search-result-type">
+                          {item.type === 'product' ? 'Featured' :
+                           item.type === 'category' ? 'Category' :
+                           item.type === 'recommended' ? 'Recommended' : 'Trending'}
+                        </span>
+                      </div>
+                      {'price' in item && item.price && (
+                        <span className="search-result-price">${item.price.toFixed(2)}</span>
+                      )}
+                    </Link>
+                  ))}
+                </div>
+                {searchResults.length > 5 && (
+                  <Link to="/shop" className="search-results-more">
+                    View all {searchResults.length} results
+                  </Link>
+                )}
+              </div>
+            )}
+            {searchResults && searchResults.length === 0 && searchQuery.trim() && (
+              <div className="search-results-dropdown">
+                <div className="search-no-results">
+                  <span className="search-no-results-icon">🔍</span>
+                  <p>No results found for "{searchQuery}"</p>
+                  <Link to="/shop" className="btn btn-outline btn-small">Browse All Products</Link>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="home-hero-actions">
             <Link to="/shop" className="btn btn-primary btn-large">
-              Peppeeeee
+              Shop Now
             </Link>
             <Link to="/blog" className="btn btn-outline btn-large">
               Read Our Blog
@@ -94,14 +265,16 @@ function HomePage() {
           </div>
         </div>
         <div className="home-hero-visual">
-          <div className="floating-cube">
-            <div className="cube">
-              <div className="cube-face front">C64</div>
-              <div className="cube-face back">AMIGA</div>
-              <div className="cube-face right">APPLE</div>
-              <div className="cube-face left">IBM</div>
-              <div className="cube-face top">ATARI</div>
-              <div className="cube-face bottom">BBC</div>
+          <div className="floating-chip">
+            <div className="chip">
+              <div className="chip-content">
+                <div className="chip-item">C64</div>
+                <div className="chip-item">AMIGA</div>
+                <div className="chip-item">APPLE</div>
+                <div className="chip-item">IBM</div>
+                <div className="chip-item">ATARI</div>
+                <div className="chip-item">BBC</div>
+              </div>
             </div>
           </div>
         </div>
@@ -151,6 +324,28 @@ function HomePage() {
           ))}
         </div>
       </section>
+
+      {/* Recommendations Section */}
+      <RecommendationBlock
+        title="Recommended For You"
+        subtitle="Hand-picked selections based on collector favorites and recent arrivals"
+        items={recommendedItems}
+        variant="default"
+        columns={4}
+        viewAllLink="/shop"
+        viewAllText="Browse All Machines"
+      />
+
+      {/* Trending Now Section */}
+      <RecommendationBlock
+        title="Trending Now"
+        subtitle="What collectors are loving this month"
+        items={trendingItems}
+        variant="compact"
+        columns={3}
+        viewAllLink="/shop"
+        viewAllText="See More"
+      />
 
       {/* Features Section */}
       <section className="home-features">
@@ -221,7 +416,7 @@ function HomePage() {
       <section className="home-cta">
         <div className="cta-content">
           <h2>Ready to own a piece of computing history?</h2>
-          <p>Join thousands of collectors and enthusiasts who trust RetroPC for authentic vintage computers.</p>
+          <p>Join thousands of collectors and enthusiasts who trust ClassicPC for authentic vintage computers.</p>
           <div className="cta-actions">
             <Link to="/shop" className="btn btn-primary btn-large">
               Start Exploring

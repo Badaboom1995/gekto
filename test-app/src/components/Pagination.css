@@ -1,0 +1,234 @@
+/* =================================
+   Pagination Component Styles
+   ================================= */
+
+.pagination {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0;
+}
+
+.pagination__controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Page Numbers Container */
+.pagination__pages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Base Button Styles */
+.pagination__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.pagination__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.pagination__btn:focus-visible {
+  outline: none;
+  border-color: #00d4ff;
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+}
+
+.pagination__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Navigation Buttons (Prev/Next) */
+.pagination__btn--nav {
+  min-width: 100px;
+}
+
+.pagination__btn--nav svg {
+  flex-shrink: 0;
+}
+
+/* Page Number Buttons */
+.pagination__btn--page {
+  min-width: 40px;
+  padding: 8px;
+}
+
+/* Active Page */
+.pagination__btn--active {
+  background: #00d4ff;
+  border-color: #00d4ff;
+  color: #0a0a0a;
+  font-weight: 600;
+}
+
+.pagination__btn--active:hover:not(:disabled) {
+  background: #00b8e0;
+  border-color: #00b8e0;
+  color: #0a0a0a;
+}
+
+/* Ellipsis */
+.pagination__ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  color: #666;
+  font-size: 14px;
+  user-select: none;
+}
+
+/* Items Per Page Selector */
+.pagination__per-page {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pagination__per-page-label {
+  font-size: 14px;
+  color: #888;
+}
+
+.pagination__per-page-select {
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 32px 8px 12px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.pagination__per-page-select:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.pagination__per-page-select:focus {
+  outline: none;
+  border-color: #00d4ff;
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.1);
+}
+
+.pagination__per-page-select option {
+  background: #1a1a1a;
+  color: #fff;
+}
+
+/* =================================
+   Responsive Styles
+   ================================= */
+
+/* Tablet */
+@media (max-width: 768px) {
+  .pagination__controls {
+    gap: 6px;
+  }
+
+  .pagination__btn {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .pagination__btn--nav {
+    min-width: auto;
+  }
+
+  .pagination__btn-text {
+    display: none;
+  }
+
+  .pagination__btn--page {
+    min-width: 36px;
+    padding: 8px 6px;
+  }
+
+  .pagination__ellipsis {
+    width: 30px;
+    height: 36px;
+  }
+
+  .pagination__pages {
+    gap: 2px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .pagination {
+    gap: 12px;
+    padding: 16px 0;
+  }
+
+  .pagination__controls {
+    gap: 4px;
+  }
+
+  .pagination__btn {
+    padding: 6px 8px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .pagination__btn--page {
+    min-width: 32px;
+    padding: 6px 4px;
+  }
+
+  .pagination__ellipsis {
+    width: 24px;
+    height: 32px;
+    font-size: 12px;
+  }
+
+  .pagination__per-page {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .pagination__per-page-label {
+    font-size: 12px;
+  }
+
+  .pagination__per-page-select {
+    padding: 6px 28px 6px 10px;
+    font-size: 13px;
+  }
+}
+
+/* =================================
+   Print Styles
+   ================================= */
+
+@media print {
+  .pagination {
+    display: none;
+  }
+}

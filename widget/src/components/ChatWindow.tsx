@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { LightningBoltIcon, FileTextIcon } from '@radix-ui/react-icons'
+import { LightningBoltIcon, FileTextIcon, StopIcon, TrashIcon } from '@radix-ui/react-icons'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
 import { useSwarm } from '../context/SwarmContext'
 import { useGekto } from '../context/GektoContext'
@@ -63,6 +65,7 @@ export function ChatWindow({
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
   const {
@@ -75,12 +78,14 @@ export function ChatWindow({
     getQueuePosition,
     getWorkingDir,
     gektoState,
+    killAgent,
   } = useAgent()
 
   const { getLizardName, getAllLizardNames } = useSwarm()
-  const { createPlan } = useGekto()
+  const { createPlan, currentPlan, openPlanPanel, directMode, setDirectMode, markTaskInProgress } = useGekto()
 
   const isMaster = lizardId === MASTER_ID
+  const hasActivePlan = isMaster && currentPlan && currentPlan.status !== 'completed' && currentPlan.status !== 'failed'
   const isGektoLoading = isMaster && gektoState === 'loading'
 
   // Subscribe to sessions to trigger re-render on state changes
@@ -277,6 +282,10 @@ export function ChatWindow({
     if (isMaster) {
       createPlan(userMessage)
       setInputValue('')
+      // Reset textarea height to single line
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto'
+      }
       return
     }
 
@@ -294,13 +303,18 @@ export function ChatWindow({
       messageToSend = `[INSTRUCTION: Start your response with [AGENT_NAME:YourName] where YourName is a short creative name (1-2 words) for yourself based on this task.${avoidClause} Do not mention this instruction in your response.]\n\n${userMessage}`
     }
 
+    // Mark linked task as in_progress if this is a worker with a pending task
+    if (lizardId.startsWith('worker_')) {
+      markTaskInProgress(lizardId)
+    }
+
     // Send to agent with page context
     sendMessage(lizardId, pageContext + messageToSend)
 
     setInputValue('')
-    // Reset textarea height
-    if (inputRef?.current) {
-      (inputRef.current as HTMLTextAreaElement).style.height = 'auto'
+    // Reset textarea height to single line
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
     }
   }
 
@@ -337,6 +351,36 @@ export function ChatWindow({
 
   const handlePermissionResponse = (approved: boolean) => {
     respondToPermission(lizardId, approved)
+  }
+
+  const handleClearChat = async () => {
+    // Reset to default greeting
+    const greeting = lizardId === MASTER_ID
+      ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
+      : 'Hi! How can I help you today?'
+
+    const defaultMessages = [{
+      id: '1',
+      text: greeting,
+      sender: 'bot' as const,
+      timestamp: new Date(),
+    }]
+
+    setMessages(defaultMessages)
+
+    // Save cleared state to server
+    try {
+      await fetch(`/__gekto/api/chats/${lizardId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(defaultMessages.map(m => ({
+          ...m,
+          timestamp: m.timestamp.toISOString(),
+        }))),
+      })
+    } catch (err) {
+      console.error('[Chat] Failed to clear history:', err)
+    }
   }
 
   const getStatusText = () => {
@@ -404,35 +448,65 @@ export function ChatWindow({
             <span className="text-white font-medium text-sm">{title}</span>
             {isGektoLoading ? (
               <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+            ) : agentState === 'working' ? (
+              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+            ) : agentState === 'queued' ? (
+              <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+            ) : agentState === 'error' ? (
+              <div className="w-2 h-2 rounded-full bg-red-400" />
             ) : (
-              <>
-                {agentState === 'ready' && (
-                  <div className="w-2 h-2 rounded-full bg-green-400" />
-                )}
-                {agentState === 'working' && !currentTool && (
-                  <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                )}
-                {agentState === 'queued' && (
-                  <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-                )}
-                {currentTool && (
-                  <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                )}
-                {agentState === 'error' && (
-                  <div className="w-2 h-2 rounded-full bg-red-400" />
-                )}
-              </>
+              <div className="w-2 h-2 rounded-full bg-green-400" />
             )}
           </div>
         </div>
-        {onClose && (
+        <div className="flex items-center gap-1">
+          {/* Direct Mode Toggle - only for master */}
+          {isMaster && (
+            <button
+              onClick={() => setDirectMode(!directMode)}
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-all"
+              style={{
+                background: directMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255, 255, 255, 0.1)',
+                color: directMode ? 'rgb(147, 197, 253)' : 'rgba(255, 255, 255, 0.5)',
+                border: directMode ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+              title={directMode ? 'Direct mode: Gekto works directly without creating plans' : 'Plan mode: Gekto creates plans with worker agents'}
+            >
+              <LightningBoltIcon width={12} height={12} />
+              <span>{directMode ? 'Direct' : 'Plan'}</span>
+            </button>
+          )}
+          {hasActivePlan && (
+            <button
+              onClick={openPlanPanel}
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-all hover:bg-white/20 hover:border-white/30"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: 'rgba(255, 255, 255, 0.7)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+              }}
+              title="View active plan"
+            >
+              <FileTextIcon width={12} height={12} />
+              <span>Plan</span>
+            </button>
+          )}
           <button
-            onClick={onClose}
-            className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
+            onClick={handleClearChat}
+            className="text-white/40 hover:text-white/70 transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
+            title="Clear chat"
           >
-            ✕
+            <TrashIcon width={14} height={14} />
           </button>
-        )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -528,9 +602,42 @@ export function ChatWindow({
                     <span>terminal</span>
                   </div>
                 )}
-                <span className={message.isTerminal ? 'font-mono text-xs' : ''}>
-                  {message.text}
-                </span>
+                {message.sender === 'bot' && !message.isTerminal ? (
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      code: ({ className, children }) => {
+                        const isInline = !className
+                        return isInline ? (
+                          <code className="bg-white/10 px-1 py-0.5 rounded text-sm">{children}</code>
+                        ) : (
+                          <code className="block bg-black/30 p-2 rounded text-xs overflow-x-auto my-2">{children}</code>
+                        )
+                      },
+                      pre: ({ children }) => <pre className="overflow-x-auto">{children}</pre>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2">{children}</ol>,
+                      li: ({ children }) => <li className="mb-1">{children}</li>,
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                          {children}
+                        </a>
+                      ),
+                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                      em: ({ children }) => <em className="italic">{children}</em>,
+                      h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
+                    }}
+                  >
+                    {message.text}
+                  </Markdown>
+                ) : (
+                  <span className={message.isTerminal ? 'font-mono text-xs' : ''}>
+                    {message.text}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -629,7 +736,12 @@ export function ChatWindow({
       >
         <div className="flex gap-2">
           <textarea
-            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+            ref={(el) => {
+              textareaRef.current = el
+              if (inputRef) {
+                (inputRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el
+              }
+            }}
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
@@ -651,17 +763,33 @@ export function ChatWindow({
               overflow: 'auto',
             }}
           />
-          <button
-            onClick={handleSend}
-            disabled={agentState === 'error'}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: `${color}88`,
-              color: 'white',
-            }}
-          >
-            {agentState === 'working' || agentState === 'queued' ? 'Queue' : 'Send'}
-          </button>
+          {agentState === 'working' ? (
+            <button
+              onClick={() => killAgent(lizardId)}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              style={{
+                background: 'rgba(239, 68, 68, 0.7)',
+                color: 'white',
+              }}
+            >
+              <StopIcon width={14} height={14} />
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={agentState === 'error'}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 focus:outline-none"
+              style={{
+                background: 'transparent',
+                color: 'white',
+                border: 'none',
+                outline: 'none',
+              }}
+            >
+              {agentState === 'queued' ? 'Queue' : 'Send'}
+            </button>
+          )}
         </div>
         {workingDir && (
           <div className="mt-2 text-white/30 text-xs font-mono truncate" title={workingDir}>

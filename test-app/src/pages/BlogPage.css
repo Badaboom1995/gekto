@@ -60,16 +60,157 @@
   margin: 0 auto;
 }
 
-/* Blog Posts Section */
-.blog-posts-section {
-  max-width: 1200px;
+/* Blog Content Section with Filters */
+.blog-content-section {
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 60px 24px;
+  padding: 40px 24px 60px;
+}
+
+/* Mobile Filter Toggle */
+.blog-filters-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 20px;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: 20px;
+  transition: all 0.2s ease;
+}
+
+.blog-filters-toggle:hover {
+  background: #222;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.filters-badge-mobile {
+  background: #00d4ff;
+  color: #0a0a0a;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+/* Blog Layout */
+.blog-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+/* Filters Sidebar */
+.blog-filters-sidebar {
+  position: sticky;
+  top: 100px;
+}
+
+/* Mobile Filters Close Button */
+.blog-filters-close {
+  display: none;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  background: #222;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 1001;
+}
+
+.blog-filters-close:hover {
+  background: #333;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Blog Posts Container */
+.blog-posts-container {
+  min-width: 0;
+}
+
+/* Results Info */
+.blog-results-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.blog-results-count {
+  font-size: 14px;
+  color: #888;
+}
+
+.blog-clear-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: #ff6b6b;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.blog-clear-filters:hover {
+  background: rgba(255, 107, 107, 0.1);
+}
+
+/* Empty State */
+.blog-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 80px 20px;
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 12px;
+}
+
+.blog-empty-state svg {
+  color: #444;
+  margin-bottom: 20px;
+}
+
+.blog-empty-state h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.blog-empty-state p {
+  font-size: 14px;
+  color: #888;
+  margin-bottom: 24px;
 }
 
 .blog-posts-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 24px;
 }
 
@@ -206,7 +347,53 @@
 }
 
 /* Responsive Design */
+@media (max-width: 1200px) {
+  .blog-layout {
+    grid-template-columns: 260px 1fr;
+    gap: 24px;
+  }
+}
+
 @media (max-width: 1024px) {
+  .blog-filters-toggle {
+    display: flex;
+  }
+
+  .blog-layout {
+    display: block;
+  }
+
+  .blog-filters-sidebar {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.9);
+    padding: 20px;
+    overflow-y: auto;
+  }
+
+  .blog-filters-sidebar--open {
+    display: block;
+    animation: fadeIn 0.2s ease;
+  }
+
+  .blog-filters-sidebar--open .blog-filters-close {
+    display: flex;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
   .blog-posts-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -239,13 +426,19 @@
     font-size: 16px;
   }
 
-  .blog-posts-section {
-    padding: 40px 24px;
+  .blog-content-section {
+    padding: 24px 16px 40px;
   }
 
   .blog-posts-grid {
     grid-template-columns: 1fr;
     gap: 20px;
+  }
+
+  .blog-results-info {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
   }
 
   .blog-cta {
@@ -279,5 +472,9 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .blog-empty-state {
+    padding: 60px 16px;
   }
 }

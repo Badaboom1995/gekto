@@ -143,7 +143,7 @@ const sampleReviews: Review[] = [
     rating: 5,
     date: '2023-12-28',
     title: 'Better than expected',
-    content: 'This is my third purchase from RetroPC and they never disappoint. The SID chip sounds amazing and brings back so many memories. The warranty gives peace of mind too.',
+    content: 'This is my third purchase from ClassicPC and they never disappoint. The SID chip sounds amazing and brings back so many memories. The warranty gives peace of mind too.',
     helpful: 31,
     verified: true,
   },
@@ -352,7 +352,7 @@ export default function ProductDetailPage() {
     <div className="product-detail-page">
       {/* Breadcrumb */}
       <nav className="breadcrumb">
-        <Link to="/">Shop</Link>
+        <Link to="/">Catalog</Link>
         <span className="breadcrumb-separator">/</span>
         <span>{product.category}</span>
         <span className="breadcrumb-separator">/</span>

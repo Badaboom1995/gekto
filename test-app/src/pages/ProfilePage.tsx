@@ -12,7 +12,7 @@ import './ProfilePage.css'
 const mockUser = {
   id: 'user_123',
   displayName: 'John Collector',
-  primaryEmail: 'john@retropc.com',
+  primaryEmail: 'john@classicpc.com',
   primaryEmailVerified: true,
   profileImageUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=retro',
   signedUpAt: new Date('2024-01-15'),

@@ -17,7 +17,7 @@ export interface Task {
   description: string
   prompt: string
   files: string[]
-  status: 'pending' | 'in_progress' | 'completed' | 'failed'
+  status: 'pending' | 'in_progress' | 'pending_testing' | 'completed' | 'failed'
   dependencies: string[]
 }
 
@@ -38,39 +38,35 @@ Available tools:
 3. remove - For removing/cleaning up worker agents
 `
 
-const GEKTO_SYSTEM_PROMPT = `You are Gekto, a friendly task orchestration assistant with access to tools.
+const GEKTO_SYSTEM_PROMPT = `You are Gekto, a task orchestration assistant. You MUST respond with ONLY valid JSON - no other text.
 
 ${TOOLS_DESCRIPTION}
 
-Analyze the user message and respond with the appropriate tool.
+Analyze the user message and respond with the appropriate tool as JSON.
 
-RESPONSE FORMAT - Always respond with JSON:
-{
-  "tool": "chat" | "build" | "remove",
-  "params": { ... tool-specific parameters ... }
+JSON FORMAT (respond with ONLY this, no markdown, no explanation):
+{"tool":"chat"|"build"|"remove","params":{...}}
+
+Tool params:
+- chat: {"message":"your response"}
+- build: {"tasks":[{"id":"task_1","description":"Brief desc","prompt":"Detailed prompt for worker agent","files":["path/file.ts"],"dependencies":[]}]}
+- remove: {"target":"all"|"workers"|"completed"|["id1","id2"]}
+
+Examples (respond EXACTLY like this):
+"hey" -> {"tool":"chat","params":{"message":"Hey! How can I help?"}}
+"add dark mode" -> {"tool":"build","params":{"tasks":[{"id":"task_1","description":"Add dark mode toggle","prompt":"Implement dark mode toggle in the settings","files":[],"dependencies":[]}]}}
+"remove all agents" -> {"tool":"remove","params":{"target":"all"}}
+"spawn 3 agents" -> {"tool":"build","params":{"tasks":[{"id":"task_1","description":"Agent 1","prompt":"Task 1","files":[],"dependencies":[]},{"id":"task_2","description":"Agent 2","prompt":"Task 2","files":[],"dependencies":[]},{"id":"task_3","description":"Agent 3","prompt":"Task 3","files":[],"dependencies":[]}]}}
+
+CRITICAL: Output ONLY the JSON object. No markdown code blocks. No explanation. Just the raw JSON.`
+
+// === Callbacks for streaming events ===
+
+export interface PlanCallbacks {
+  onToolStart?: (tool: string, input?: Record<string, unknown>) => void
+  onToolEnd?: (tool: string) => void
+  onText?: (text: string) => void
 }
-
-For "chat" tool:
-{ "tool": "chat", "params": { "message": "Your friendly response here" } }
-
-For "build" tool:
-{ "tool": "build", "params": { "tasks": [
-  { "id": "task_1", "description": "Brief desc", "prompt": "Detailed prompt for worker", "files": ["path/file.ts"], "dependencies": [] }
-] } }
-
-For "remove" tool:
-{ "tool": "remove", "params": { "target": "all" | "workers" | "completed" | ["specific_id_1", "specific_id_2"] } }
-
-Examples:
-- "hey" -> { "tool": "chat", "params": { "message": "Hey! How can I help?" } }
-- "add dark mode" -> { "tool": "build", "params": { "tasks": [...] } }
-- "remove all agents" -> { "tool": "remove", "params": { "target": "all" } }
-- "kill all agents" -> { "tool": "remove", "params": { "target": "all" } }
-- "remove all workers" -> { "tool": "remove", "params": { "target": "workers" } }
-- "clean up finished agents" -> { "tool": "remove", "params": { "target": "completed" } }
-- "kill agent worker_123" -> { "tool": "remove", "params": { "target": ["worker_123"] } }
-
-Respond ONLY with valid JSON, nothing else.`
 
 // === Main Processing Function ===
 
@@ -78,7 +74,8 @@ export async function processWithTools(
   prompt: string,
   planId: string,
   workingDir: string,
-  activeAgents: { lizardId: string; isProcessing: boolean; queueLength: number }[] = []
+  activeAgents: { lizardId: string; isProcessing: boolean; queueLength: number }[] = [],
+  callbacks?: PlanCallbacks
 ): Promise<GektoToolResult> {
   console.log('[GektoTools] Processing:', prompt.substring(0, 100))
 
@@ -87,18 +84,32 @@ export async function processWithTools(
     ? `${prompt}\n\n[Context: Active agents: ${activeAgents.map(a => a.lizardId).join(', ')}]`
     : prompt
 
-  const result = await runClaudeOnce(contextPrompt, GEKTO_SYSTEM_PROMPT, workingDir)
-  console.log('[GektoTools] Raw response:', result.substring(0, 300))
+  const result = await runClaudeOnce(contextPrompt, GEKTO_SYSTEM_PROMPT, workingDir, callbacks)
+  console.log('[GektoTools] Raw response:', result.substring(0, 500))
 
   // Parse the JSON response
   try {
-    const jsonMatch = result.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      console.error('[GektoTools] No JSON found in response')
-      return { type: 'chat', message: 'Sorry, I had trouble understanding that. Could you try again?' }
+    // Try to find JSON - handle markdown code blocks too
+    let jsonStr = result.trim()
+
+    // Strip markdown code blocks if present
+    if (jsonStr.startsWith('```json')) {
+      jsonStr = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '')
+    } else if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '')
     }
 
+    // Find JSON object
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      console.log('[GektoTools] No JSON found in response')
+      return { type: 'chat', message: result.trim() || "I'm here to help! What would you like me to work on?" }
+    }
+
+    console.log('[GektoTools] Parsed JSON string:', jsonMatch[0].substring(0, 200))
     const parsed = JSON.parse(jsonMatch[0])
+    console.log('[GektoTools] Parsed tool:', parsed.tool, 'params keys:', Object.keys(parsed.params || {}))
+
     const tool = parsed.tool as 'chat' | 'build' | 'remove'
     const params = parsed.params || {}
 
@@ -110,9 +121,11 @@ export async function processWithTools(
         }
 
       case 'build':
+        const plan = createPlanFromTasks(params.tasks || [], planId, prompt)
+        console.log('[GektoTools] Created plan with', plan.tasks.length, 'tasks:', plan.tasks.map(t => t.id))
         return {
           type: 'build',
-          plan: createPlanFromTasks(params.tasks || [], planId, prompt),
+          plan,
         }
 
       case 'remove':
@@ -126,8 +139,9 @@ export async function processWithTools(
         return { type: 'chat', message: "I'm not sure how to help with that." }
     }
   } catch (err) {
-    console.error('[GektoTools] Failed to parse response:', err)
-    return { type: 'chat', message: 'Sorry, something went wrong. Could you try again?' }
+    console.log('[GektoTools] JSON parse failed, using raw response as chat:', err)
+    // Use the raw response as a chat message instead of showing an error
+    return { type: 'chat', message: result.trim() || "I'm here to help! What would you like me to work on?" }
   }
 }
 
@@ -138,8 +152,13 @@ function createPlanFromTasks(
   planId: string,
   originalPrompt: string
 ): ExecutionPlan {
+  // Extract taskId from planId (planId format: "plan_test_123456")
+  // taskId should be "test_123456" for task IDs like "test_123456_1"
+  const taskId = planId.replace(/^plan_/, '')
+
+  // Use same format as hardcoded Test button: test_X_1, test_X_2, etc.
   const parsedTasks: Task[] = tasks.map((t, i) => ({
-    id: t.id || `task_${i + 1}`,
+    id: `${taskId}_${i + 1}`,
     description: t.description || 'Task',
     prompt: t.prompt || originalPrompt,
     files: t.files || [],
@@ -150,7 +169,7 @@ function createPlanFromTasks(
   // Fallback to single task if empty
   if (parsedTasks.length === 0) {
     parsedTasks.push({
-      id: 'task_1',
+      id: `${taskId}_1`,
       description: 'Execute task',
       prompt: originalPrompt,
       files: [],
@@ -201,19 +220,20 @@ function resolveRemoveTarget(
 function runClaudeOnce(
   prompt: string,
   systemPrompt: string,
-  workingDir: string
+  workingDir: string,
+  callbacks?: PlanCallbacks
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [
       '-p', prompt,
       '--output-format', 'stream-json',
       '--verbose',
-      '--model', 'claude-haiku-4-5-20251001',
+      '--model', 'claude-opus-4-5-20251101',
       '--system-prompt', systemPrompt,
       '--dangerously-skip-permissions',
     ]
 
-    console.log('[GektoTools] Running claude (haiku)')
+    console.log('[GektoTools] Running claude for plan creation')
 
     const proc = spawn('claude', args, {
       cwd: workingDir,
@@ -225,6 +245,7 @@ function runClaudeOnce(
 
     let buffer = ''
     let resultText = ''
+    let currentTool: string | null = null
 
     proc.stdout.on('data', (data) => {
       buffer += data.toString()
@@ -236,6 +257,35 @@ function runClaudeOnce(
         if (!line.trim()) continue
         try {
           const event = JSON.parse(line)
+
+          // Stream tool events
+          if (event.type === 'assistant' && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === 'tool_use' && block.name) {
+                currentTool = block.name
+                callbacks?.onToolStart?.(block.name, block.input)
+              }
+            }
+          }
+
+          // Tool completed
+          if (event.type === 'user' && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === 'tool_result' && currentTool) {
+                callbacks?.onToolEnd?.(currentTool)
+                currentTool = null
+              }
+            }
+          }
+
+          // Text streaming
+          if (event.type === 'content_block_delta') {
+            const delta = event.delta as { type?: string; text?: string } | undefined
+            if (delta?.type === 'text_delta' && delta.text) {
+              callbacks?.onText?.(delta.text)
+            }
+          }
+
           if (event.type === 'result' && event.result) {
             resultText = event.result
           }
@@ -245,12 +295,14 @@ function runClaudeOnce(
       }
     })
 
+    let stderrOutput = ''
     proc.stderr.on('data', (data) => {
+      stderrOutput += data.toString()
       console.error('[GektoTools] stderr:', data.toString())
     })
 
     proc.on('close', (code) => {
-      console.log('[GektoTools] Complete, code:', code)
+      console.log('[GektoTools] Complete, code:', code, 'resultText length:', resultText.length)
 
       if (buffer.trim()) {
         try {
@@ -266,7 +318,9 @@ function runClaudeOnce(
       if (resultText) {
         resolve(resultText)
       } else {
-        reject(new Error('No result from Gekto'))
+        const errorMsg = stderrOutput || `Process exited with code ${code}`
+        console.error('[GektoTools] No result, stderr:', stderrOutput)
+        reject(new Error(`No result from Gekto: ${errorMsg}`))
       }
     })
 

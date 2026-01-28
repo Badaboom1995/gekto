@@ -50,6 +50,7 @@ interface LizardSession {
   currentTool: ToolStatus | null
   permissionRequest: PermissionRequest | null
   queuePosition: number
+  lastResponse?: string  // Store last response for task completion
 }
 
 interface AgentContextValue {
@@ -160,6 +161,12 @@ export function AgentProvider({ children }: AgentProviderProps) {
   const [activeAgents, setActiveAgents] = useState<ActiveAgent[]>([])
   const [gektoState, setGektoState] = useState<GektoState>('loading')
   const wsRef = useRef<WebSocket | null>(null)
+  const sessionsRef = useRef<Map<string, LizardSession>>(sessions)
+
+  // Keep sessionsRef in sync with sessions state
+  useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
 
   // Message listeners - ChatWindow can register to receive messages
   const messageListenersRef = useRef<Map<string, (message: Message) => void>>(new Map())
@@ -195,21 +202,34 @@ export function AgentProvider({ children }: AgentProviderProps) {
         const msg = JSON.parse(event.data)
         const lizardId = msg.lizardId
 
-        console.log('[Agent] Received:', msg.type, lizardId, msg)
 
         switch (msg.type) {
           case 'state':
+            
             if (lizardId) {
               if (msg.state === 'working') {
                 updateSession(lizardId, { state: 'working', queuePosition: 0 })
               } else if (msg.state === 'ready') {
                 updateSession(lizardId, { state: 'ready', currentTool: null, queuePosition: 0 })
+
+                // If this is a worker lizard transitioning to ready, notify GektoContext
+                // that the task is complete (agent finished all processing)
+                if (lizardId.startsWith('worker_')) {
+                 
+                  const session = sessionsRef.current.get(lizardId)
+                  const lastResponse = session?.lastResponse || ''
+                  const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
+                  if (gektoHandler && lastResponse) {
+                    gektoHandler(lizardId, lastResponse, false)
+                  } else {
+                    console.warn('[Agent] Cannot notify: gektoHandler=', !!gektoHandler, 'lastResponse=', !!lastResponse)
+                  }
+                }
               }
             }
             break
 
           case 'gekto_state':
-            console.log('[Agent] Gekto state:', msg.state)
             setGektoState(msg.state as GektoState)
             break
 
@@ -278,11 +298,9 @@ export function AgentProvider({ children }: AgentProviderProps) {
             setActiveAgents(msg.agents || [])
             // Sync session states from server
             if (msg.agents && msg.agents.length > 0) {
-              console.log('[Agent] Received agents_list:', msg.agents)
               setSessions(prev => {
                 const next = new Map(prev)
                 for (const agent of msg.agents) {
-                  console.log('[Agent] Syncing session:', agent.lizardId, 'state:', agent.state)
                   const current = next.get(agent.lizardId) ?? { ...DEFAULT_SESSION }
                   next.set(agent.lizardId, {
                     ...current,
@@ -290,7 +308,6 @@ export function AgentProvider({ children }: AgentProviderProps) {
                     queuePosition: agent.queuePosition || 0,
                   })
                 }
-                console.log('[Agent] Sessions after sync:', Array.from(next.entries()))
                 return next
               })
             }
@@ -303,10 +320,6 @@ export function AgentProvider({ children }: AgentProviderProps) {
             break
 
           case 'debug_pool_result':
-            console.log('\n========== AGENT POOL (from server) ==========')
-            console.log('Sessions:', msg.sessions)
-            console.table(msg.sessions)
-            console.log('===============================================\n')
             break
 
           // Plan-related messages - forward to GektoContext
@@ -322,6 +335,45 @@ export function AgentProvider({ children }: AgentProviderProps) {
           case 'task_failed': {
             const gektoHandler = (window as unknown as { __gektoMessageHandler?: (msg: unknown) => void }).__gektoMessageHandler
             if (gektoHandler) {
+              //  const taskId = `test_${Date.now()}`
+              //  const planId = `plan_${taskId}`
+              //  msg.planId = planId
+
+              //  const plan = {
+              //   id: planId,
+              //   status: 'ready',
+              //   originalPrompt: 'Test: spawn 3 agents with lightweight tasks',
+              //   tasks: [
+              //     {
+              //       id: `${taskId}_1`,
+              //       description: 'Agent 1: Say hello',
+              //       prompt: 'Say "Hello from Agent 1!" and nothing else.',
+              //       files: [],
+              //       status: 'pending',
+              //       dependencies: [],
+              //     },
+              //     {
+              //       id: `${taskId}_2`,
+              //       description: 'Agent 2: Count to 3',
+              //       prompt: 'Count from 1 to 3, one number per line.',
+              //       files: [],
+              //       status: 'pending',
+              //       dependencies: [],
+              //     },
+              //     {
+              //       id: `${taskId}_3`,
+              //       description: 'Agent 3: Say goodbye',
+              //       prompt: 'Say "Goodbye from Agent 3!" and nothing else.',
+              //       files: [],
+              //       status: 'pending',
+              //       dependencies: [],
+              //     },
+              //   ],
+              //   createdAt: new Date().toISOString(),
+              // }
+              // msg.plan = plan
+
+              
               gektoHandler(msg)
             }
             break
@@ -361,11 +413,20 @@ export function AgentProvider({ children }: AgentProviderProps) {
                 saveMessageToHistory(lizardId, newMessage)
               }
 
-              // If this is a worker lizard, notify GektoContext about completion
+              // Store last response for worker lizards (used when state becomes 'ready')
               if (lizardId.startsWith('worker_')) {
-                const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
-                if (gektoHandler) {
-                  gektoHandler(lizardId, text, msg.type === 'error')
+                updateSession(lizardId, { lastResponse: text })
+                // Also update ref immediately so it's available when 'state: ready' arrives
+                // (the useEffect that syncs sessionsRef runs after render, which is too late)
+                const currentSession = sessionsRef.current.get(lizardId) ?? { ...DEFAULT_SESSION }
+                sessionsRef.current.set(lizardId, { ...currentSession, lastResponse: text })
+
+                // If it's an error, mark task as failed immediately
+                if (msg.type === 'error') {
+                  const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
+                  if (gektoHandler) {
+                    gektoHandler(lizardId, text, true)
+                  }
                 }
               }
             }
@@ -381,7 +442,6 @@ export function AgentProvider({ children }: AgentProviderProps) {
     }
 
     ws.onclose = () => {
-      console.log('[Agent] Disconnected')
     }
 
     ws.onerror = (error) => {

@@ -112,7 +112,7 @@ function BasketPage() {
         <nav className="breadcrumb">
           <Link to="/">Home</Link>
           <span className="breadcrumb-separator">/</span>
-          <Link to="/shop">Shop</Link>
+          <Link to="/shop">Catalog</Link>
           <span className="breadcrumb-separator">/</span>
           <span className="breadcrumb-current">Shopping Basket</span>
         </nav>

@@ -1,56 +1,20 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process'
+import { randomUUID } from 'crypto'
 
-// Persistent Gekto - two processes:
-// 1. Haiku classifier (fast) - determines mode
-// 2. Opus worker (direct mode) - handles tasks with tools
+// Simplified Gekto - single Opus process for direct mode
+// Plan mode is the default, direct mode is enabled via UI toggle
 
 export type GektoMode = 'direct' | 'plan'
 export type GektoState = 'loading' | 'ready' | 'error'
 
-interface ClassifyResult {
-  mode: GektoMode
-  durationMs: number
-}
-
 export interface GektoCallbacks {
   onStateChange?: (state: GektoState) => void
-  onClassified?: (mode: GektoMode) => void
   onToolStart?: (tool: string, input?: Record<string, unknown>) => void
   onToolEnd?: (tool: string) => void
   onText?: (text: string) => void
   onResult?: (text: string) => void
   onError?: (error: string) => void
 }
-
-// === Haiku Classifier (persistent, fast) ===
-
-const CLASSIFIER_PROMPT = `You classify user messages. Return ONLY one word: "direct" or "plan".
-
-- direct: Simple tasks, greetings, questions, single-file changes, quick fixes
-- plan: Complex tasks, multi-file features, OR any request to spawn/create agents/lizards/workers
-
-IMPORTANT: Any request mentioning "spawn", "create agents", "make lizards", "workers", "parallel agents" -> ALWAYS plan
-
-Examples:
-"hey" -> direct
-"what time is it" -> direct
-"add a button to header" -> direct
-"fix the typo in readme" -> direct
-"refactor the auth system" -> plan
-"build a shopping cart with checkout" -> plan
-"split this into 3 agents" -> plan
-"spawn 5 agents" -> plan
-"create workers for this" -> plan
-"make lizards to handle this" -> plan
-"use parallel agents" -> plan
-
-Respond with ONLY "direct" or "plan", nothing else.`
-
-let classifierProcess: ChildProcessWithoutNullStreams | null = null
-let classifierReady = false
-let classifierLoading = false
-let classifierPendingResolve: ((result: string) => void) | null = null
-let classifierBuffer = ''
 
 // === Opus Worker (persistent, for direct mode) ===
 
@@ -70,6 +34,10 @@ let opusBuffer = ''
 let opusCallbacks: GektoCallbacks | null = null
 let opusCurrentTool: string | null = null
 
+// Session ID for persistent history - generated once and shared across all Gekto calls
+// This allows both direct mode (persistent process) and plan mode (one-shot calls) to share history
+let gektoSessionId: string = randomUUID()
+
 let workingDir = process.cwd()
 let stateChangeCallback: ((state: GektoState) => void) | null = null
 
@@ -79,137 +47,14 @@ export function initGekto(cwd: string, onStateChange?: (state: GektoState) => vo
   workingDir = cwd
   stateChangeCallback = onStateChange || null
 
-  // Start both processes
-  spawnClassifier()
+  // Start Opus process
   spawnOpus()
 }
 
 export function getGektoState(): GektoState {
-  // Both need to be ready for Gekto to be ready
-  if (classifierLoading || opusLoading) return 'loading'
-  if (classifierReady && opusReady) return 'ready'
+  if (opusLoading) return 'loading'
+  if (opusReady) return 'ready'
   return 'loading'
-}
-
-// === Classifier Process ===
-
-function spawnClassifier(): void {
-  if (classifierProcess) return
-
-  classifierLoading = true
-  classifierReady = false
-  updateState()
-
-  const args = [
-    '--input-format', 'stream-json',
-    '--output-format', 'stream-json',
-    '--verbose',
-    '--model', 'claude-haiku-4-5-20251001',
-    '--system-prompt', CLASSIFIER_PROMPT,
-    '--dangerously-skip-permissions',
-  ]
-
-  console.log('[Gekto:Classifier] Spawning...')
-
-  classifierProcess = spawn('claude', args, {
-    cwd: workingDir,
-    env: process.env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
-
-  classifierProcess.stdout.on('data', (data) => {
-    classifierBuffer += data.toString()
-    const lines = classifierBuffer.split('\n')
-    classifierBuffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (!line.trim()) continue
-      try {
-        const event = JSON.parse(line)
-        handleClassifierEvent(event)
-      } catch {
-        // Ignore
-      }
-    }
-  })
-
-  classifierProcess.stderr.on('data', (data) => {
-    console.error('[Gekto:Classifier] stderr:', data.toString())
-  })
-
-  classifierProcess.on('close', (code) => {
-    console.log('[Gekto:Classifier] Exited:', code)
-    classifierProcess = null
-    classifierReady = false
-    classifierLoading = false
-
-    if (classifierPendingResolve) {
-      classifierPendingResolve('direct')
-      classifierPendingResolve = null
-    }
-
-    // Auto-restart
-    setTimeout(spawnClassifier, 1000)
-  })
-
-  classifierProcess.on('error', (err) => {
-    console.error('[Gekto:Classifier] Error:', err)
-    classifierProcess = null
-    classifierReady = false
-    classifierLoading = false
-    updateState()
-  })
-}
-
-function handleClassifierEvent(event: { type: string; subtype?: string; result?: string }): void {
-  if (event.type === 'system' && event.subtype === 'init') {
-    console.log('[Gekto:Classifier] Ready!')
-    classifierReady = true
-    classifierLoading = false
-    updateState()
-    return
-  }
-
-  if (event.type === 'result' && event.result) {
-    if (classifierPendingResolve) {
-      classifierPendingResolve(event.result)
-      classifierPendingResolve = null
-    }
-  }
-}
-
-async function classify(prompt: string): Promise<ClassifyResult> {
-  const startTime = Date.now()
-
-  if (!classifierProcess || !classifierReady) {
-    spawnClassifier()
-    await new Promise(resolve => setTimeout(resolve, 1000))
-  }
-
-  if (!classifierProcess) {
-    return { mode: 'direct', durationMs: Date.now() - startTime }
-  }
-
-  return new Promise((resolve) => {
-    classifierPendingResolve = (result: string) => {
-      const mode = result.toLowerCase().includes('plan') ? 'plan' : 'direct'
-      resolve({ mode, durationMs: Date.now() - startTime })
-    }
-
-    const inputMessage = {
-      type: 'user',
-      message: { role: 'user', content: prompt },
-    }
-    classifierProcess!.stdin.write(JSON.stringify(inputMessage) + '\n')
-
-    // Timeout
-    setTimeout(() => {
-      if (classifierPendingResolve) {
-        classifierPendingResolve('direct')
-        classifierPendingResolve = null
-      }
-    }, 10000)
-  })
 }
 
 // === Opus Process ===
@@ -225,13 +70,14 @@ function spawnOpus(): void {
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
     '--verbose',
-    '--model', 'claude-sonnet-4-20250514',
+    '--model', 'claude-opus-4-5-20251101',
     '--system-prompt', OPUS_SYSTEM_PROMPT,
     '--dangerously-skip-permissions',
     '--disallowed-tools', 'Bash', 'Task',
+    '--session-id', gektoSessionId,
   ]
 
-  console.log('[Gekto:Opus] Spawning...')
+  console.log('[Gekto:Opus] Spawning with session ID:', gektoSessionId)
 
   opusProcess = spawn('claude', args, {
     cwd: workingDir,
@@ -248,9 +94,10 @@ function spawnOpus(): void {
       if (!line.trim()) continue
       try {
         const event = JSON.parse(line)
+        console.log('[Gekto:Opus] Event:', event.type, event.subtype || '')
         handleOpusEvent(event)
       } catch {
-        // Ignore
+        // Ignore non-JSON lines
       }
     }
   })
@@ -263,7 +110,8 @@ function spawnOpus(): void {
     console.log('[Gekto:Opus] Exited:', code)
     opusProcess = null
     opusReady = false
-    opusLoading = false
+    opusLoading = true
+    updateState()
 
     if (opusPendingResolve) {
       opusPendingResolve('Process restarting, please try again.')
@@ -278,19 +126,29 @@ function spawnOpus(): void {
     console.error('[Gekto:Opus] Error:', err)
     opusProcess = null
     opusReady = false
-    opusLoading = false
+    opusLoading = true
     updateState()
   })
+
+  // Warm up: send a quick message to trigger ready state
+  setTimeout(() => {
+    if (opusProcess && !opusReady) {
+      console.log('[Gekto:Opus] Sending warm-up message...')
+      const warmup = { type: 'user', message: { role: 'user', content: 'hi' } }
+      opusProcess.stdin.write(JSON.stringify(warmup) + '\n')
+    }
+  }, 500)
 }
 
 function handleOpusEvent(event: Record<string, unknown>): void {
-  // Init event
-  if (event.type === 'system' && event.subtype === 'init') {
-    console.log('[Gekto:Opus] Ready!')
-    opusReady = true
-    opusLoading = false
-    updateState()
-    return
+  // Result event means process is working
+  if (event.type === 'result') {
+    if (!opusReady) {
+      console.log('[Gekto:Opus] Ready! (first response received)')
+      opusReady = true
+      opusLoading = false
+      updateState()
+    }
   }
 
   // Tool use detection from assistant message
@@ -376,41 +234,36 @@ async function sendToOpus(prompt: string, callbacks: GektoCallbacks): Promise<st
 export interface GektoResponse {
   mode: GektoMode
   message: string
-  classifyMs: number
   workMs?: number
 }
 
+// Mode is now passed as parameter - default is 'plan', UI can toggle to 'direct'
 export async function sendToGekto(
   prompt: string,
+  mode: GektoMode = 'plan',
   callbacks?: GektoCallbacks
 ): Promise<GektoResponse> {
   const startTime = Date.now()
 
-  // Step 1: Classify with Haiku (fast)
-  const { mode, durationMs: classifyMs } = await classify(prompt)
-  console.log(`[Gekto] Classified as "${mode}" in ${classifyMs}ms`)
-  callbacks?.onClassified?.(mode)
+  console.log(`[Gekto] Processing in "${mode}" mode`)
 
-  // Step 2: Handle based on mode
+  // Plan mode - return immediately, caller will use gektoTools.ts for planning
   if (mode === 'plan') {
-    // Return immediately - caller will use gektoTools.ts for planning
     return {
       mode: 'plan',
       message: 'Creating plan...',
-      classifyMs,
     }
   }
 
   // Direct mode - use Opus
   const result = await sendToOpus(prompt, callbacks || {})
-  const workMs = Date.now() - startTime - classifyMs
+  const workMs = Date.now() - startTime
 
   callbacks?.onResult?.(result)
 
   return {
     mode: 'direct',
     message: result,
-    classifyMs,
     workMs,
   }
 }
@@ -419,9 +272,50 @@ export async function sendToGekto(
 
 function updateState(): void {
   const state = getGektoState()
+  console.log('[Gekto] updateState called, state:', state, 'callback:', !!stateChangeCallback)
   stateChangeCallback?.(state)
 }
 
 export function isGektoReady(): boolean {
-  return classifierReady && opusReady
+  return opusReady
+}
+
+// Set/update state change callback (for reconnections)
+export function setStateCallback(callback: (state: GektoState) => void): void {
+  stateChangeCallback = callback
+}
+
+// Get current session ID (shared between direct and plan modes)
+export function getGektoSessionId(): string {
+  return gektoSessionId
+}
+
+// Reset session to start fresh (clears history)
+export function resetGektoSession(): void {
+  console.log('[Gekto:Opus] Resetting session, generating new ID')
+  gektoSessionId = randomUUID()
+  // Kill current process to force restart with new session
+  if (opusProcess) {
+    opusProcess.kill('SIGTERM')
+  }
+}
+
+// === Abort current task (like pressing ESC in CLI) ===
+
+export function abortGekto(): boolean {
+  let aborted = false
+
+  // Send SIGINT to interrupt current Opus task (like Ctrl+C / ESC)
+  if (opusProcess && opusPendingResolve) {
+    console.log('[Gekto:Opus] Aborting current task (SIGINT)...')
+    opusProcess.kill('SIGINT')
+    // Resolve the pending promise so caller doesn't hang
+    opusPendingResolve('Task was stopped.')
+    opusPendingResolve = null
+    opusCallbacks = null
+    opusCurrentTool = null
+    aborted = true
+  }
+
+  return aborted
 }

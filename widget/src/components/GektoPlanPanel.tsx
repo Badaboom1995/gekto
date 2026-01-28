@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { ChatBubbleIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons'
 import { useGekto, type Task, type TaskStatus } from '../context/GektoContext'
 
 interface GektoPlanPanelProps {
@@ -10,7 +12,10 @@ function TaskStatusIcon({ status }: { status: TaskStatus }) {
     case 'pending':
       return <span className="text-gray-400">○</span>
     case 'in_progress':
-      return <span className="text-blue-400 animate-pulse">◉</span>
+      // Pulsing empty circle for in-progress tasks
+      return <span className="text-blue-400 animate-pulse">○</span>
+    case 'pending_testing':
+      return <span className="text-yellow-400">◎</span>
     case 'completed':
       return <span className="text-green-400">✓</span>
     case 'failed':
@@ -18,32 +23,136 @@ function TaskStatusIcon({ status }: { status: TaskStatus }) {
   }
 }
 
-function TaskRow({ task }: { task: Task }) {
+interface TaskRowProps {
+  task: Task
+  onMarkResolved?: (taskId: string) => void
+  onRetry?: (taskId: string) => void
+}
+
+function TaskRow({ task, onMarkResolved, onRetry }: TaskRowProps) {
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
+  const [isPromptVisible, setIsPromptVisible] = useState(false)
+  const [isRemoving, setIsRemoving] = useState(false)
+
+  const handleMarkResolved = () => {
+    setIsRemoving(true)
+    // Wait for animation to complete before actually removing
+    setTimeout(() => {
+      onMarkResolved?.(task.id)
+    }, 300)
+  }
+
+  const getBackgroundStyle = () => {
+    switch (task.status) {
+      case 'in_progress':
+        return { bg: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)' }
+      case 'pending_testing':
+        return { bg: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)' }
+      case 'completed':
+        return { bg: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(255, 255, 255, 0.05)' }
+      case 'failed':
+        return { bg: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }
+      default:
+        return { bg: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)' }
+    }
+  }
+
+  const style = getBackgroundStyle()
+
+  // Split description into lines and check if truncation needed
+  const descriptionLines = task.description.split('\n')
+  const needsTruncation = descriptionLines.length > 2
+  const truncatedDescription = needsTruncation && !isDescriptionExpanded
+    ? descriptionLines.slice(0, 2).join('\n') + '...'
+    : task.description
+
   return (
     <div
-      className="flex items-start gap-3 p-3 rounded-lg"
+      className="flex items-start gap-3 p-3 rounded-lg transition-all duration-300"
       style={{
-        background: task.status === 'in_progress'
-          ? 'rgba(59, 130, 246, 0.1)'
-          : task.status === 'completed'
-          ? 'rgba(34, 197, 94, 0.05)'
-          : task.status === 'failed'
-          ? 'rgba(239, 68, 68, 0.1)'
-          : 'rgba(255, 255, 255, 0.02)',
-        border: task.status === 'in_progress'
-          ? '1px solid rgba(59, 130, 246, 0.3)'
-          : '1px solid rgba(255, 255, 255, 0.05)',
+        background: style.bg,
+        border: style.border,
+        opacity: isRemoving ? 0 : 1,
+        transform: isRemoving ? 'translateX(20px) scale(0.95)' : 'translateX(0) scale(1)',
+        maxHeight: isRemoving ? 0 : 500,
+        marginBottom: isRemoving ? 0 : undefined,
+        padding: isRemoving ? 0 : undefined,
+        overflow: 'hidden',
       }}
     >
       <div className="mt-0.5">
         <TaskStatusIcon status={task.status} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-white text-sm font-medium mb-1">
-          {task.description}
+        {/* Description - truncated to 2 lines, expandable */}
+        <div className="mb-1">
+          <div
+            className="text-white text-sm font-medium whitespace-pre-wrap"
+            style={{ wordBreak: 'break-word' }}
+          >
+            {truncatedDescription}
+          </div>
+          {needsTruncation && (
+            <button
+              onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+              className="flex items-center gap-1 mt-1 text-xs text-white/50 hover:text-white/70 transition-colors"
+            >
+              {isDescriptionExpanded ? (
+                <>
+                  <ChevronUpIcon width={12} height={12} />
+                  <span>Show less</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDownIcon width={12} height={12} />
+                  <span>Show more</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
+
+        {/* Prompt button - elegant icon button */}
+        {task.prompt && task.prompt !== task.description && (
+          <div className="mt-2">
+            <button
+              onClick={() => setIsPromptVisible(!isPromptVisible)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-all"
+              style={{
+                background: isPromptVisible ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                color: isPromptVisible ? 'rgb(192, 132, 252)' : 'rgba(255, 255, 255, 0.5)',
+                border: isPromptVisible ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <ChatBubbleIcon width={12} height={12} />
+              <span>Agent Prompt</span>
+              {isPromptVisible ? (
+                <ChevronUpIcon width={12} height={12} />
+              ) : (
+                <ChevronDownIcon width={12} height={12} />
+              )}
+            </button>
+
+            {/* Prompt content */}
+            {isPromptVisible && (
+              <div
+                className="mt-2 p-2 rounded-md text-xs text-white/70 whitespace-pre-wrap"
+                style={{
+                  background: 'rgba(0, 0, 0, 0.2)',
+                  border: '1px solid rgba(168, 85, 247, 0.2)',
+                  maxHeight: 200,
+                  overflowY: 'auto',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {task.prompt}
+              </div>
+            )}
+          </div>
+        )}
+
         {task.files.length > 0 && (
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1 mt-2">
             {task.files.map((file, i) => (
               <span
                 key={i}
@@ -68,17 +177,45 @@ function TaskRow({ task }: { task: Task }) {
             {task.error}
           </div>
         )}
+
+        {/* Action buttons for pending_testing status */}
+        {task.status === 'pending_testing' && !isRemoving && (
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={handleMarkResolved}
+              className="px-2 py-1 text-xs rounded transition-colors"
+              style={{
+                background: 'rgba(34, 197, 94, 0.2)',
+                color: 'rgb(74, 222, 128)',
+                border: '1px solid rgba(34, 197, 94, 0.3)',
+              }}
+            >
+              Mark Resolved
+            </button>
+            <button
+              onClick={() => onRetry?.(task.id)}
+              className="px-2 py-1 text-xs rounded transition-colors"
+              style={{
+                background: 'rgba(239, 68, 68, 0.2)',
+                color: 'rgb(248, 113, 113)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
-  const { currentPlan, executePlan, cancelPlan } = useGekto()
-
+  const { currentPlan, executePlan, cancelPlan, markTaskResolved, retryTask } = useGekto()
   if (!currentPlan) return null
 
   const completedCount = currentPlan.tasks.filter(t => t.status === 'completed').length
+  const pendingTestingCount = currentPlan.tasks.filter(t => t.status === 'pending_testing').length
   const totalCount = currentPlan.tasks.length
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
 
@@ -162,6 +299,9 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             <div className="flex items-center gap-2 text-xs text-white/60 mb-1">
               <span>Progress</span>
               <span>{completedCount}/{totalCount}</span>
+              {pendingTestingCount > 0 && (
+                <span className="text-yellow-400">({pendingTestingCount} pending review)</span>
+              )}
             </div>
             <div
               className="h-1 rounded-full overflow-hidden"
@@ -200,11 +340,16 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             </div>
           ) : (
             currentPlan.tasks.map(task => (
-              <TaskRow key={task.id} task={task} />
+              <TaskRow
+                key={task.id}
+                task={task}
+                onMarkResolved={markTaskResolved}
+                onRetry={retryTask}
+              />
             ))
           )}
         </div>
-
+        
         {/* Actions */}
         <div
           className="flex gap-2 p-3"

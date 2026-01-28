@@ -29,7 +29,24 @@ function summarizeInput(input: Record<string, unknown>): string {
   return ''
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are a helpful coding assistant. Be concise and direct in your responses.`
+const DEFAULT_SYSTEM_PROMPT = `You are a helpful coding assistant. Be concise and direct in your responses.
+
+IMPORTANT RESTRICTIONS - You MUST follow these rules:
+1. DO NOT use Bash or shell commands - you cannot run terminal commands
+2. DO NOT try to build, compile, or bundle the project
+3. DO NOT try to start, restart, or run any servers or dev environments
+4. DO NOT run tests, linters, or any CLI tools
+5. DO NOT install packages or run npm/yarn/pnpm commands
+
+Your job is ONLY to:
+- Read and understand code using Read, Glob, Grep tools
+- Write and edit code using Write and Edit tools
+- Make the requested code changes
+
+After making changes, simply report what you did. The user will handle building, testing, and running the code themselves.`
+
+// Tools that agents are not allowed to use
+const DISALLOWED_TOOLS = ['Bash', 'Task']
 
 function getOrCreateSession(lizardId: string, ws?: WebSocket): LizardSession {
   let session = sessions.get(lizardId)
@@ -38,6 +55,7 @@ function getOrCreateSession(lizardId: string, ws?: WebSocket): LizardSession {
       agent: new HeadlessAgent({
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
         workingDir: getWorkingDir(),
+        disallowedTools: DISALLOWED_TOOLS,
       }),
       isProcessing: false,
       queue: [],

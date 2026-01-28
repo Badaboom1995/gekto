@@ -133,6 +133,126 @@ const articles: Article[] = [
     readingTime: '11 min read',
     category: 'Music',
     slug: 'chiptune-music'
+  },
+  {
+    id: 13,
+    title: 'From Punch Cards to Pixels: The Evolution of Computing',
+    excerpt: 'Trace the incredible journey from room-sized mainframes to powerful personal computers that fit in your pocket.',
+    author: 'Thomas Wright',
+    date: 'September 28, 2024',
+    readingTime: '13 min read',
+    category: 'History',
+    slug: 'evolution-computing'
+  },
+  {
+    id: 14,
+    title: 'The IBM PC Revolution',
+    excerpt: 'How IBM\'s 1981 personal computer became the foundation for modern computing and created an industry standard.',
+    author: 'Patricia Green',
+    date: 'September 21, 2024',
+    readingTime: '10 min read',
+    category: 'History',
+    slug: 'ibm-pc-revolution'
+  },
+  {
+    id: 15,
+    title: 'Understanding Computer Architecture: From Logic Gates to CPUs',
+    excerpt: 'A deep dive into how computers actually work, from boolean logic to the complex processors powering today\'s devices.',
+    author: 'Marcus Stewart',
+    date: 'September 14, 2024',
+    readingTime: '16 min read',
+    category: 'Hardware',
+    slug: 'computer-architecture'
+  },
+  {
+    id: 16,
+    title: 'The Evolution of Computer Graphics',
+    excerpt: 'From monochrome displays to 3D rendering: how computer graphics technology has transformed over four decades.',
+    author: 'Elena Rodriguez',
+    date: 'September 7, 2024',
+    readingTime: '12 min read',
+    category: 'Design',
+    slug: 'evolution-graphics'
+  },
+  {
+    id: 17,
+    title: 'Mainframe Computers: Still Relevant in the Modern Era',
+    excerpt: 'Discover how massive mainframe systems continue to power banking, insurance, and government operations worldwide.',
+    author: 'William Foster',
+    date: 'August 31, 2024',
+    readingTime: '9 min read',
+    category: 'Hardware',
+    slug: 'mainframe-modern-era'
+  },
+  {
+    id: 18,
+    title: 'The Apple II and the Birth of Personal Computing',
+    excerpt: 'Steve Wozniak\'s groundbreaking design that made computers accessible to everyone and launched Apple\'s legacy.',
+    author: 'Michelle Clark',
+    date: 'August 24, 2024',
+    readingTime: '11 min read',
+    category: 'History',
+    slug: 'apple-ii-birth-personal'
+  },
+  {
+    id: 19,
+    title: 'Overclocking: Pushing Your Computer to Its Limits',
+    excerpt: 'Explore the art and science of pushing computer hardware beyond its factory specifications for maximum performance.',
+    author: 'Ryan Mitchell',
+    date: 'August 17, 2024',
+    readingTime: '14 min read',
+    category: 'Hardware',
+    slug: 'overclocking-limits'
+  },
+  {
+    id: 20,
+    title: 'The History of Computer Viruses and Malware',
+    excerpt: 'From the first virus to ransomware: understanding the evolution of digital threats and how we defend against them.',
+    author: 'Dr. Sarah Bennett',
+    date: 'August 10, 2024',
+    readingTime: '15 min read',
+    category: 'History',
+    slug: 'computer-viruses-history'
+  },
+  {
+    id: 21,
+    title: 'Building a Home Server: A Complete Guide',
+    excerpt: 'Create your own private cloud and NAS system for data storage, backup, and home automation centralization.',
+    author: 'Alex Turner',
+    date: 'August 3, 2024',
+    readingTime: '18 min read',
+    category: 'Guides',
+    slug: 'home-server-guide'
+  },
+  {
+    id: 22,
+    title: 'The Future of Quantum Computing',
+    excerpt: 'Quantum computers promise to solve problems that would take classical computers millennia to crack.',
+    author: 'Dr. James Lee',
+    date: 'July 27, 2024',
+    readingTime: '12 min read',
+    category: 'History',
+    slug: 'quantum-computing-future'
+  },
+  {
+    id: 23,
+    title: 'The History of the Internet: From ARPANET to the World Wide Web',
+    excerpt: 'Discover how a Cold War military project evolved into the global network that connects billions of people and transformed human civilization.',
+    author: 'Dr. Rebecca Torres',
+    date: 'January 15, 2025',
+    readingTime: '14 min read',
+    category: 'History',
+    slug: 'history-of-internet'
+  },
+  {
+    id: 24,
+    title: 'The Evolution of Operating Systems: From Batch Processing to Modern Multitasking',
+    excerpt: 'Trace the fascinating journey of operating systems from the earliest mainframes to today\'s sophisticated platforms that power everything from smartphones to supercomputers.',
+    author: 'Dr. Michael Patterson',
+    date: 'January 22, 2025',
+    readingTime: '16 min read',
+    category: 'History',
+    slug: 'evolution-operating-systems'
   }
 ];
 

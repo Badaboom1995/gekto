@@ -69,7 +69,7 @@ function AboutPage() {
         </div>
         <div className="about-hero-content">
           <h2 className="about-hero-heading">
-            About <span className="highlight">RetroPC</span>
+            About <span className="highlight">ClassicPC</span>
           </h2>
           <p className="about-hero-subtitle">
             We're passionate collectors and restoration experts dedicated to preserving the golden era of personal computing for future generations.
@@ -83,7 +83,7 @@ function AboutPage() {
           <div className="about-mission-text">
             <h2>Our Mission</h2>
             <p>
-              At RetroPC, we believe that vintage computers are more than just old hardware—they're
+              At ClassicPC, we believe that vintage computers are more than just old hardware—they're
               pieces of history that shaped our digital world. Our mission is to preserve, restore,
               and share these remarkable machines with collectors and enthusiasts worldwide.
             </p>

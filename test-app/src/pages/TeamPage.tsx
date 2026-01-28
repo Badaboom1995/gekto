@@ -168,10 +168,10 @@ function TeamPage() {
         <h2>Join Our Team</h2>
         <p>Are you passionate about vintage computing? We're always looking for talented individuals who share our love for retro technology.</p>
         <div className="team-cta-actions">
-          <a href="mailto:careers@retropc.com" className="btn btn-primary">
+          <a href="mailto:careers@classicpc.com" className="btn btn-primary">
             View Open Positions
           </a>
-          <a href="mailto:hello@retropc.com" className="btn btn-outline">
+          <a href="mailto:hello@classicpc.com" className="btn btn-outline">
             Contact Us
           </a>
         </div>

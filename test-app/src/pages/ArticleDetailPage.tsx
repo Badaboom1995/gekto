@@ -193,6 +193,395 @@ The Amiga's influence lives on in modern computing. Its concepts of preemptive m
     readingTime: '10 min read',
     category: 'History',
     slug: 'amiga-ahead-of-time'
+  },
+  'history-of-internet': {
+    id: 23,
+    title: 'The History of the Internet: From ARPANET to the World Wide Web',
+    excerpt: 'Discover how a Cold War military project evolved into the global network that connects billions of people and transformed human civilization.',
+    content: `The Internet is arguably the most transformative invention of the 20th century. What began as a military research project has evolved into a global network connecting over 5 billion people, fundamentally changing how we communicate, work, learn, and live.
+
+## The Cold War Origins
+
+The story of the Internet begins in the late 1950s, at the height of the Cold War. After the Soviet Union launched Sputnik in 1957, the United States created ARPA (Advanced Research Projects Agency) to ensure American technological superiority.
+
+In 1962, J.C.R. Licklider of MIT wrote a series of memos describing his vision of a "Galactic Network" - a globally interconnected set of computers through which everyone could quickly access data and programs from any site. This vision would guide the development of what became the Internet.
+
+## ARPANET: The First Network
+
+The first practical steps toward the Internet came with ARPANET, which went online in 1969. The initial network connected four nodes:
+
+- **UCLA**: University of California, Los Angeles
+- **Stanford Research Institute**: Menlo Park, California
+- **UC Santa Barbara**: University of California, Santa Barbara
+- **University of Utah**: Salt Lake City
+
+The first message ever sent over ARPANET was "LO" - the system crashed before the complete word "LOGIN" could be transmitted. Despite this inauspicious beginning, the network grew rapidly.
+
+## Packet Switching: The Key Innovation
+
+ARPANET pioneered packet switching, a revolutionary method of data transmission developed independently by Paul Baran in the US and Donald Davies in the UK.
+
+Instead of maintaining a dedicated circuit between two points (like a telephone call), packet switching breaks data into small packets that can travel independently through the network, taking different routes if necessary. Key benefits included:
+
+- **Resilience**: No single point of failure could bring down the network
+- **Efficiency**: Network resources shared among many users
+- **Flexibility**: Different types of data could traverse the same network
+
+## TCP/IP: The Language of the Internet
+
+By the early 1970s, ARPANET needed a standardized way for different computer networks to communicate. Vint Cerf and Bob Kahn developed the Transmission Control Protocol (TCP) and Internet Protocol (IP), which became the fundamental communication protocols of the Internet.
+
+TCP/IP was officially adopted by ARPANET on January 1, 1983 - a date many consider the true birthday of the Internet. This standardization allowed diverse networks to interconnect, creating a true "network of networks."
+
+## Email: The Killer Application
+
+In 1971, Ray Tomlinson sent the first email, choosing the @ symbol to separate the user name from the computer name. Email quickly became the most popular application on the early Internet.
+
+By 1973, email comprised 75% of all ARPANET traffic. It demonstrated the Internet's potential for human communication beyond simple file transfers and remote computer access.
+
+## The Domain Name System
+
+As the network grew, remembering numerical IP addresses became impractical. In 1983, Paul Mockapetris invented the Domain Name System (DNS), allowing users to type memorable names like "stanford.edu" instead of numbers.
+
+The first domain names were registered in 1985:
+
+1. symbolics.com (March 15, 1985)
+2. bbn.com
+3. think.com
+4. mcc.com
+5. dec.com
+
+## The World Wide Web
+
+While the Internet provided the infrastructure, it was the World Wide Web that made it accessible to ordinary people. In 1989, Tim Berners-Lee, a British scientist at CERN, proposed a hypertext system for sharing information.
+
+In 1991, Berners-Lee released three fundamental technologies:
+
+- **HTML**: HyperText Markup Language for creating web pages
+- **URI/URL**: Uniform Resource Identifier for addressing web resources
+- **HTTP**: HyperText Transfer Protocol for transmitting data
+
+### The First Web Browser
+
+The first web browser, called WorldWideWeb (later renamed Nexus), was also created by Berners-Lee. However, it was the Mosaic browser, released in 1993, that truly popularized the Web with its user-friendly graphical interface and support for images.
+
+## Commercialization and the Dot-Com Era
+
+In 1991, the National Science Foundation lifted restrictions on commercial use of the Internet. This opened the floodgates for businesses to establish an online presence.
+
+Key milestones of the commercialization era:
+
+- **1994**: Amazon and Yahoo founded
+- **1995**: eBay launches; Netscape goes public
+- **1998**: Google founded
+- **2000**: Dot-com bubble peaks and bursts
+
+## The Social Web
+
+The early 2000s saw the rise of social networking and user-generated content:
+
+- **2003**: MySpace launches
+- **2004**: Facebook founded at Harvard
+- **2005**: YouTube begins streaming video
+- **2006**: Twitter introduces microblogging
+- **2007**: iPhone revolutionizes mobile Internet access
+
+## The Modern Internet
+
+Today's Internet bears little resemblance to its academic origins. It has become essential infrastructure for:
+
+- **Commerce**: E-commerce represents trillions of dollars annually
+- **Communication**: Email, messaging, video calls connect billions
+- **Entertainment**: Streaming services deliver music, movies, and games
+- **Education**: Online learning reaches students worldwide
+- **Work**: Remote work and cloud computing transform business
+
+## Challenges and the Future
+
+The Internet faces significant challenges:
+
+- **Privacy**: Data collection and surveillance concerns
+- **Security**: Cyber attacks and information warfare
+- **Misinformation**: Fake news and content moderation
+- **Digital divide**: Unequal access across regions and demographics
+- **Net neutrality**: Debates over equal treatment of Internet traffic
+
+## Legacy and Impact
+
+From a network of four computers to a global system connecting billions of devices, the Internet represents one of humanity's greatest collaborative achievements. The vision of Licklider's "Galactic Network" has been realized beyond what its pioneers could have imagined.
+
+The Internet has democratized information, enabled new forms of human connection, and created entirely new industries. As we look to the future with developments in artificial intelligence, the Internet of Things, and beyond, the network continues to evolve and shape our world in profound ways.`,
+    author: 'Dr. Rebecca Torres',
+    authorBio: 'Technology historian and professor of Computer Science at MIT, specializing in the social impact of networking technologies.',
+    date: 'January 15, 2025',
+    readingTime: '14 min read',
+    category: 'History',
+    slug: 'history-of-internet'
+  },
+  'evolution-operating-systems': {
+    id: 24,
+    title: 'The Evolution of Operating Systems: From Batch Processing to Modern Multitasking',
+    excerpt: 'Trace the fascinating journey of operating systems from the earliest mainframes to today\'s sophisticated platforms that power everything from smartphones to supercomputers.',
+    content: `Operating systems are the unsung heroes of computing. Every time you tap your smartphone, type on your laptop, or interact with any digital device, an operating system is working behind the scenes to make it all possible. This is the story of how these remarkable pieces of software evolved over seven decades.
+
+## The Pre-Operating System Era (1940s-1950s)
+
+In the earliest days of computing, there were no operating systems at all. Programmers interacted directly with the hardware, feeding instructions through punch cards and toggle switches.
+
+### The ENIAC Era
+
+The ENIAC (Electronic Numerical Integrator and Computer), completed in 1945, required operators to physically rewire the machine for each new program. Running a single calculation could take days of preparation for mere seconds of actual computation.
+
+### Manual Operation Challenges
+
+Early computers presented significant operational challenges:
+
+- **Single-user operation**: Only one program could run at a time
+- **Manual scheduling**: Human operators managed job queues
+- **No abstraction**: Programmers needed intimate hardware knowledge
+- **Wasted resources**: Expensive machines sat idle between jobs
+
+## Batch Processing Systems (1950s-1960s)
+
+The first true operating systems emerged to solve the inefficiency of manual operation. Batch processing systems automated the loading and execution of multiple jobs.
+
+### GM-NAA I/O (1956)
+
+General Motors and North American Aviation developed one of the first operating systems for the IBM 704. It automatically loaded the next job when the current one finished, dramatically improving computer utilization.
+
+### Key Batch Processing Features
+
+- **Job Control Language (JCL)**: Standardized commands for job submission
+- **Automatic job sequencing**: Reduced idle time between programs
+- **Input/Output management**: Abstracted hardware details from programmers
+- **Error handling**: Basic recovery from program failures
+
+### The Mainframe Era
+
+IBM dominated this period with systems like the IBM 7090 and its operating systems. IBSYS and later OS/360 became industry standards, establishing many concepts still used today.
+
+## Time-Sharing Revolution (1960s-1970s)
+
+Batch processing was efficient for the computer but frustrating for users who had to wait hours or days for results. Time-sharing changed everything by allowing multiple users to interact with the computer simultaneously.
+
+### Compatible Time-Sharing System (CTSS)
+
+Developed at MIT in 1961, CTSS demonstrated that multiple users could share a single computer through terminals. Each user felt like they had the entire machine to themselves.
+
+### Multics: The Ambitious Pioneer
+
+The Multiplexed Information and Computing Service (Multics), begun in 1965 as a collaboration between MIT, Bell Labs, and General Electric, introduced revolutionary concepts:
+
+- **Hierarchical file systems**: Directories containing directories
+- **Security rings**: Multiple levels of privilege
+- **Dynamic linking**: Loading code on demand
+- **Virtual memory**: Using disk space as extended RAM
+
+Though Multics was considered commercially unsuccessful, its influence on future operating systems was immeasurable.
+
+## The Birth of Unix (1969-1980s)
+
+When Bell Labs withdrew from the Multics project, Ken Thompson and Dennis Ritchie created Unix, a simpler but elegant operating system that would change computing forever.
+
+### Unix Philosophy
+
+Unix introduced a design philosophy that remains influential:
+
+- **Do one thing well**: Small, focused programs
+- **Text streams**: Universal data format
+- **Pipes**: Connecting programs together
+- **Everything is a file**: Unified interface to resources
+
+### The C Language Connection
+
+Dennis Ritchie's C programming language, developed alongside Unix, made the operating system portable. By 1973, Unix was rewritten in C, allowing it to run on different hardware platforms.
+
+### Unix Variants Proliferate
+
+The 1980s saw Unix spread across academia and industry:
+
+- **BSD**: Berkeley Software Distribution, adding networking
+- **System V**: AT&T's commercial Unix
+- **SunOS/Solaris**: Sun Microsystems' workstation OS
+- **AIX**: IBM's Unix variant
+- **HP-UX**: Hewlett-Packard's implementation
+
+## Personal Computer Revolution (1970s-1980s)
+
+While Unix dominated larger systems, an entirely different branch of operating systems emerged for the new personal computers.
+
+### CP/M: The Pioneer
+
+Gary Kildall's Control Program for Microcomputers (CP/M), released in 1974, became the dominant operating system for early microcomputers. Its simple design included:
+
+- **Command-line interface**: Typed commands for interaction
+- **File system**: Organized storage on floppy disks
+- **Hardware abstraction**: BIOS layer for portability
+
+### MS-DOS and the IBM PC
+
+When IBM chose Microsoft to provide the operating system for their PC in 1981, Bill Gates acquired QDOS (Quick and Dirty Operating System) and transformed it into MS-DOS. This decision would shape the industry for decades.
+
+MS-DOS features included:
+
+- **FAT file system**: Simple but effective storage organization
+- **Batch files**: Automated command sequences
+- **Memory management**: Working within 640KB limitations
+- **Device drivers**: Extending hardware support
+
+### The Macintosh Revolution
+
+Apple's Macintosh, released in 1984, brought the graphical user interface to consumers. Built on concepts from Xerox PARC, the Mac OS introduced:
+
+- **Windows and icons**: Visual representation of files and programs
+- **Mouse-driven interaction**: Point and click instead of typing
+- **WYSIWYG**: What You See Is What You Get editing
+- **Desktop metaphor**: Familiar office concepts on screen
+
+## The Windows Era (1985-2000s)
+
+Microsoft's Windows brought graphical interfaces to the vast installed base of DOS computers, eventually becoming the dominant desktop operating system.
+
+### Windows Evolution
+
+- **Windows 1.0 (1985)**: Tiled windows, limited functionality
+- **Windows 3.0 (1990)**: Overlapping windows, improved memory management
+- **Windows 95 (1995)**: Start menu, taskbar, Plug and Play
+- **Windows NT (1993)**: Enterprise-grade, 32-bit architecture
+- **Windows XP (2001)**: Merged consumer and professional lines
+- **Windows 7 (2009)**: Refined interface, improved stability
+- **Windows 10 (2015)**: Unified platform across devices
+
+### The NT Kernel
+
+Windows NT, designed by Dave Cutler (formerly of DEC), introduced a modern kernel architecture:
+
+- **Preemptive multitasking**: OS controls program scheduling
+- **Protected memory**: Programs cannot crash each other
+- **NTFS file system**: Security, compression, large file support
+- **Hardware abstraction**: Clean separation from hardware details
+
+## Linux and Open Source (1991-Present)
+
+Linus Torvalds' announcement on a Usenet newsgroup in 1991 began one of the most remarkable collaborative projects in history.
+
+### Linux Kernel Development
+
+Starting as a hobby project to create a free Unix-like system, Linux grew through contributions from thousands of developers worldwide. Key characteristics include:
+
+- **Open source**: Anyone can view, modify, and distribute the code
+- **Modular design**: Load only needed components
+- **Scalability**: Runs on everything from watches to supercomputers
+- **Community driven**: Development by global volunteers
+
+### Linux Distributions
+
+Linux distributions package the kernel with additional software:
+
+- **Red Hat/Fedora**: Enterprise and community editions
+- **Debian/Ubuntu**: User-friendly desktop focus
+- **SUSE**: European enterprise favorite
+- **Arch**: Cutting-edge, do-it-yourself approach
+- **Android**: Mobile Linux variant powering billions of phones
+
+### The Server Dominance
+
+Linux now powers the majority of web servers, cloud infrastructure, and supercomputers. Its reliability, security, and cost-effectiveness made it the backbone of the internet age.
+
+## Modern Operating Systems (2000s-Present)
+
+Today's operating systems face challenges their creators could never have imagined: smartphones, cloud computing, artificial intelligence, and security threats from global adversaries.
+
+### macOS: Unix Meets Apple
+
+Apple's macOS, built on a Unix foundation (Darwin/XNU kernel), combines Unix power with Apple's design sensibility:
+
+- **BSD-based**: Robust Unix underpinnings
+- **Aqua interface**: Polished visual design
+- **Metal**: High-performance graphics framework
+- **Tight integration**: Seamless device ecosystem
+
+### Mobile Operating Systems
+
+Smartphones required operating systems optimized for touch interfaces, limited batteries, and constant connectivity:
+
+- **iOS**: Apple's mobile system, derived from macOS
+- **Android**: Google's Linux-based platform
+- **Touch-centric design**: Gestures replace mouse clicks
+- **App ecosystems**: Curated software stores
+- **Always connected**: Background sync and notifications
+
+### Cloud and Container Operating Systems
+
+Modern data centers run specialized operating systems designed for virtualization and containers:
+
+- **VMware ESXi**: Enterprise virtualization platform
+- **Container Linux**: Minimal OS for running containers
+- **Kubernetes**: Container orchestration across clusters
+- **Serverless**: Functions without visible operating systems
+
+## Key Innovations Throughout History
+
+Several breakthrough technologies transformed operating systems over the decades:
+
+### Memory Management
+
+- **Virtual memory**: Programs can use more memory than physically available
+- **Paging**: Moving data between RAM and disk automatically
+- **Memory protection**: Preventing programs from interfering with each other
+
+### Process Management
+
+- **Multitasking**: Running multiple programs simultaneously
+- **Scheduling algorithms**: Fairly distributing CPU time
+- **Inter-process communication**: Programs sharing data safely
+
+### File Systems
+
+- **Hierarchical directories**: Organizing files in tree structures
+- **Journaling**: Protecting against data loss during crashes
+- **Distributed file systems**: Files spanning multiple computers
+
+### Security
+
+- **User authentication**: Verifying user identity
+- **Access control**: Restricting who can do what
+- **Sandboxing**: Isolating potentially dangerous code
+- **Encryption**: Protecting data from unauthorized access
+
+## The Future of Operating Systems
+
+Operating systems continue evolving to meet new challenges:
+
+### Emerging Trends
+
+- **AI integration**: Built-in machine learning capabilities
+- **Edge computing**: Processing data close to its source
+- **Quantum computing**: New paradigms for computation
+- **Real-time systems**: Guaranteed response times for critical tasks
+- **Security hardening**: Protection against sophisticated attacks
+
+### Unikernel and Microkernel Approaches
+
+Modern systems are exploring minimal designs:
+
+- **Microkernels**: Minimal kernel with services in user space
+- **Unikernels**: Single-purpose, library-based systems
+- **Security through simplicity**: Less code means fewer vulnerabilities
+
+## Conclusion
+
+From the room-sized ENIAC requiring human operators to toggle switches, to smartphones running sophisticated operating systems in our pockets, the evolution has been remarkable. Each generation built upon the innovations of its predecessors while solving new challenges.
+
+Operating systems remain essential but increasingly invisible. We interact with apps and services, rarely thinking about the complex software making it all possible. Yet every tap, click, and voice command relies on decades of innovation in managing hardware resources, protecting data, and enabling human-computer interaction.
+
+As we look toward a future of artificial intelligence, quantum computing, and ubiquitous connectivity, operating systems will continue evolving. The fundamental challenges remain the same: efficiently managing resources, providing useful abstractions, and enabling people to accomplish their goals with technology. The solutions, however, will be as innovative as anything we've seen in the past seventy years.`,
+    author: 'Dr. Michael Patterson',
+    authorBio: 'Systems architect and computing historian with 30 years of experience in operating system development, formerly with Bell Labs and Microsoft Research.',
+    date: 'January 22, 2025',
+    readingTime: '16 min read',
+    category: 'History',
+    slug: 'evolution-operating-systems'
   }
 };
 
@@ -202,7 +591,7 @@ const defaultArticle: Article = {
   title: 'Article Not Found',
   excerpt: 'The requested article could not be found.',
   content: 'The article you are looking for does not exist or has been moved. Please check the URL or browse our other articles.',
-  author: 'RetroPC Team',
+  author: 'ClassicPC Team',
   authorBio: '',
   date: '',
   readingTime: '',

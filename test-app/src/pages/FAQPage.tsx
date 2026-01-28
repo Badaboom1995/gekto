@@ -11,8 +11,8 @@ interface FAQItem {
 const faqData: FAQItem[] = [
   {
     category: 'General',
-    question: 'What is RetroPC?',
-    answer: 'RetroPC is the premier destination for vintage computer collectors and enthusiasts. We specialize in sourcing, restoring, and selling authentic vintage computers from the golden era of personal computing, including classics like the Commodore 64, Apple II, IBM PC, and many more.'
+    question: 'What is ClassicPC?',
+    answer: 'ClassicPC is the premier destination for vintage computer collectors and enthusiasts. We specialize in sourcing, restoring, and selling authentic vintage computers from the golden era of personal computing, including classics like the Commodore 64, Apple II, IBM PC, and many more.'
   },
   {
     category: 'General',

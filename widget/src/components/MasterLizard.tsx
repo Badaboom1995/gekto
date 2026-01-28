@@ -135,35 +135,6 @@ export function MasterLizard() {
           onMouseDown={(e) => e.stopPropagation()}
         />
 
-        {/* Status indicator */}
-        {agentState !== 'ready' && (
-          <div
-            className="absolute flex items-center justify-center"
-            style={{
-              top: 8,
-              left: 8,
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              fontSize: 14,
-              color: 'white',
-              background: agentState === 'error'
-                ? 'rgba(239, 68, 68, 0.9)'
-                : agentState === 'working'
-                ? 'rgba(59, 130, 246, 0.9)'
-                : 'rgba(60, 60, 70, 0.95)',
-              border: '2px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: agentState === 'working'
-                ? '0 0 12px rgba(59, 130, 246, 0.6), 0 0 24px rgba(59, 130, 246, 0.3)'
-                : '0 2px 6px rgba(0,0,0,0.4)',
-              animation: agentState === 'working' ? 'flicker 1.5s ease-in-out infinite' : 'none',
-            }}
-          >
-            {agentState === 'working' && '⚡'}
-            {agentState === 'queued' && '⏳'}
-            {agentState === 'error' && '!'}
-          </div>
-        )}
 
         {/* Name label */}
         <div

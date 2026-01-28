@@ -84,7 +84,7 @@ const faqItems: FAQItem[] = [
   {
     id: 5,
     question: 'Can I change my shipping address after placing an order?',
-    answer: 'If your order has not yet shipped, please contact us immediately at support@retropc.com and we will do our best to update the shipping address. Once an order has shipped, address changes cannot be made.',
+    answer: 'If your order has not yet shipped, please contact us immediately at support@classicpc.com and we will do our best to update the shipping address. Once an order has shipped, address changes cannot be made.',
   },
   {
     id: 6,
@@ -408,7 +408,7 @@ function ShippingPage() {
         <h2>Still Have Questions?</h2>
         <p>Our support team is here to help with any shipping inquiries.</p>
         <div className="cta-buttons">
-          <a href="mailto:support@retropc.com" className="btn btn-primary">
+          <a href="mailto:support@classicpc.com" className="btn btn-primary">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
               <polyline points="22,6 12,13 2,6"/>

@@ -19,6 +19,7 @@ export interface StreamCallbacks {
 export interface HeadlessAgentConfig {
   systemPrompt?: string
   workingDir?: string
+  disallowedTools?: string[]
 }
 
 export class HeadlessAgent {
@@ -49,11 +50,16 @@ export class HeadlessAgent {
       '-p', message,
       '--output-format', 'stream-json',
       '--verbose',
+      '--model', 'claude-opus-4-5-20251101',
       '--dangerously-skip-permissions',
     ]
 
     if (this.config.systemPrompt) {
       args.push('--system-prompt', this.config.systemPrompt)
+    }
+
+    if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
+      args.push('--disallowed-tools', this.config.disallowedTools.join(','))
     }
 
     if (this.sessionId) {

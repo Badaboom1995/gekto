@@ -1,8 +1,10 @@
 {
   "name": "gekto",
   "version": "0.0.1",
-  "private": true,
   "type": "module",
+  "bin": {
+    "gekto": "./gekto.js"
+  },
   "scripts": {
     "dev": "concurrently -n test,widget,proxy -c blue,green,yellow \"bun --filter test-app dev\" \"bun --filter widget dev\" \"bun --filter gektobot dev\"",
     "dev:test-app": "bun --filter test-app dev",
