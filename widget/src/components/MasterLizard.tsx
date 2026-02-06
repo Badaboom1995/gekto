@@ -8,6 +8,7 @@ import { useDraggable } from '../hooks/useDraggable'
 import { useSwarm } from '../context/SwarmContext'
 import { useAgent } from '../context/AgentContext'
 import { useGekto } from '../context/GektoContext'
+import { useStore } from '../store/store'
 
 const MASTER_LIZARD_SIZE = 140
 const MASTER_ID = 'master'
@@ -19,14 +20,15 @@ export function MasterLizard() {
     chatMode,
     openChat,
     closeChat,
-    saveLizards,
-    addLizard,
-    clearAllLizards,
+    saveVisuals,
+    addAgent,
   } = useSwarm()
 
-  const { sessions, getLizardState } = useAgent()
+  const storeClearAllAgents = useStore((s) => s.clearAllAgents)
+
+  const { sessions } = useAgent()
   // Subscribe to sessions to trigger re-render on state changes
-  const agentState = sessions.get(MASTER_ID)?.state ?? getLizardState(MASTER_ID)
+  sessions.get(MASTER_ID)
 
   const { currentPlan, isPlanPanelOpen, closePlanPanel } = useGekto()
 
@@ -47,7 +49,7 @@ export function MasterLizard() {
       icon: <PlusCircledIcon width={20} height={20} />,
       label: 'Spawn Agent',
       onClick: () => {
-        addLizard()
+        addAgent()
       },
     },
     {
@@ -55,7 +57,7 @@ export function MasterLizard() {
       icon: <Cross2Icon width={16} height={16} />,
       label: 'Clear All',
       onClick: () => {
-        clearAllLizards()
+        storeClearAllAgents()
       },
       danger: true,
       holdDuration: 1000,
@@ -88,7 +90,7 @@ export function MasterLizard() {
     },
     onDragEnd: (_, moved) => {
       if (moved) {
-        saveLizards()
+        saveVisuals()
       }
     },
   })
@@ -151,8 +153,19 @@ export function MasterLizard() {
         >
           Gekto
         </div>
+      </div>
 
-        {/* Radial Menu */}
+      {/* Radial Menu - rendered outside lizard div with higher z-index */}
+      <div
+        className="fixed pointer-events-none"
+        style={{
+          left: position.x,
+          top: position.y,
+          zIndex: 1002,
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
         <RadialMenu
           items={menuItems}
           isVisible={isHovered && !isDragging}

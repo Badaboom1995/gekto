@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
-import { useAgent } from './AgentContext'
+import { useStore, type Agent } from '../store/store'
 
 type ChatMode = 'task' | 'plan'
 type Arrangement = 'grid' | 'stack' | 'row' | 'column'
@@ -10,17 +10,10 @@ interface Position {
   y: number
 }
 
-interface LizardSettings {
+// Local visual state per agent (not persisted to global store)
+interface LizardVisual {
+  position: Position
   color: string
-  agentName?: string
-  isWorker?: boolean      // True if spawned by Gekto
-  taskId?: string         // Task ID if worker
-}
-
-interface LizardData {
-  id: string
-  initialPosition: Position
-  settings?: LizardSettings
 }
 
 interface LizardInstance {
@@ -31,8 +24,8 @@ interface LizardInstance {
 }
 
 interface SwarmContextValue {
-  // Lizard collection
-  lizards: LizardData[]
+  // Visual state for agents (local only)
+  visuals: Record<string, LizardVisual>
 
   // Selection state
   selectedIds: Set<string>
@@ -41,26 +34,15 @@ interface SwarmContextValue {
   activeChatId: string | null
   chatMode: ChatMode
 
-  // Default settings for new lizards
-  defaultSettings: LizardSettings
-
   // Actions
-  addLizard: (position?: Position) => void
-  deleteLizard: (id: string) => void
-  updateLizardColor: (id: string, color: string) => void
-  updateLizardName: (id: string, name: string) => void
-  getLizardName: (id: string) => string | undefined
-  getAllLizardNames: () => string[]
+  addAgent: (position?: Position) => void
+  deleteAgent: (id: string) => void
+  updateColor: (id: string, color: string) => void
+  getVisual: (id: string) => LizardVisual | undefined
   openChat: (id: string, mode: ChatMode) => void
   closeChat: () => void
   toggleSelection: (id: string, addToSelection: boolean) => void
   clearSelection: () => void
-
-  // Worker spawning for Gekto
-  spawnWorkerLizard: (taskId: string, description: string) => string
-  getWorkerLizards: () => LizardData[]
-  cleanupWorkers: () => void
-  clearAllLizards: () => void
 
   // Lizard instance registration (for position tracking and arrangement)
   registerLizard: (id: string, getPosition: () => Position, setPosition: (pos: Position) => void, size: number) => void
@@ -70,7 +52,7 @@ interface SwarmContextValue {
   arrange: () => void
 
   // Persistence
-  saveLizards: () => void
+  saveVisuals: () => void
 }
 
 const SwarmContext = createContext<SwarmContextValue | null>(null)
@@ -90,21 +72,16 @@ export function useSelectionRect() {
 
 interface SwarmProviderProps {
   children: ReactNode
-  initialLizards: LizardData[]
-  defaultSettings?: LizardSettings
+  initialVisuals?: Record<string, LizardVisual>
   arrangement?: Arrangement
   corner?: Corner
   gap?: number
   arrangeHotkey?: string
 }
 
-const DEFAULT_SETTINGS: LizardSettings = { color: '#BFFF6B' }
-
 function parseHue(color: string): number | null {
-  // Handle HSL
   const hslMatch = color.match(/hsl\((\d+)/)
   if (hslMatch) return parseInt(hslMatch[1])
-  // Handle hex - convert to HSL
   if (color.startsWith('#')) {
     const hex = color.slice(1)
     const r = parseInt(hex.substring(0, 2), 16) / 255
@@ -124,13 +101,11 @@ function parseHue(color: string): number | null {
 
 function randomDistinctColor(existingColors: string[]): string {
   const existingHues = existingColors.map(parseHue).filter((h): h is number => h !== null)
-  const MIN_HUE_DISTANCE = 45 // Larger distance for more distinct colors
+  const MIN_HUE_DISTANCE = 45
 
-  // Try to find a hue that's far enough from all existing hues
   let bestHue = Math.floor(Math.random() * 360)
   let bestMinDistance = 0
 
-  // Try more attempts with larger steps for better distribution
   for (let attempt = 0; attempt < 72; attempt++) {
     const candidateHue = (attempt * 5 + Math.floor(Math.random() * 5)) % 360
     let minDistance = 180
@@ -155,24 +130,73 @@ function randomDistinctColor(existingColors: string[]): string {
   return `hsl(${bestHue}, ${saturation}%, ${lightness}%)`
 }
 
+const LIZARD_SIZE = 90
+
 export function SwarmProvider({
   children,
-  initialLizards,
-  defaultSettings = DEFAULT_SETTINGS,
+  initialVisuals = {},
   arrangement = 'grid',
   corner = 'bottom-right',
   gap = -30,
   arrangeHotkey = 'ArrowRight',
 }: SwarmProviderProps) {
-  const { setNameExtractor } = useAgent()
+  // Global store
+  const agents = useStore((s) => s.agents)
+  const storeCreateAgent = useStore((s) => s.createAgent)
+  const storeDeleteAgent = useStore((s) => s.deleteAgent)
 
-  const [lizards, setLizards] = useState<LizardData[]>(initialLizards)
+  // Local visual state (position + color per agent)
+  const [visuals, setVisuals] = useState<Record<string, LizardVisual>>(initialVisuals)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [chatMode, setChatMode] = useState<ChatMode>('task')
   const lizardInstancesRef = useRef<Map<string, LizardInstance>>(new Map())
   const [selectionRect, setSelectionRect] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const [isShiftPressed, setIsShiftPressed] = useState(false)
+
+  // Ref for visuals to avoid stale closures
+  const visualsRef = useRef(visuals)
+  useEffect(() => {
+    visualsRef.current = visuals
+  }, [visuals])
+
+  // Auto-create visuals for new agents
+  useEffect(() => {
+    const agentIds = Object.keys(agents)
+    const visualIds = Object.keys(visualsRef.current)
+    const newAgentIds = agentIds.filter(id => !visualIds.includes(id))
+
+    if (newAgentIds.length > 0) {
+      setVisuals(prev => {
+        const next = { ...prev }
+        const existingColors = Object.values(prev).map(v => v.color)
+
+        newAgentIds.forEach((id, index) => {
+          const color = randomDistinctColor([...existingColors])
+          existingColors.push(color)
+
+          // Calculate grid position for new agent
+          const totalCount = Object.keys(prev).length + index
+          const padding = 30
+          const originX = window.innerWidth - LIZARD_SIZE - padding
+          const originY = window.innerHeight - LIZARD_SIZE - padding
+          const rows = Math.floor((window.innerHeight * 0.7) / (LIZARD_SIZE + gap)) || 1
+          const row = totalCount % rows
+          const col = Math.floor(totalCount / rows)
+
+          next[id] = {
+            position: {
+              x: originX - col * (LIZARD_SIZE + gap),
+              y: originY - row * (LIZARD_SIZE + gap),
+            },
+            color,
+          }
+        })
+
+        return next
+      })
+    }
+  }, [agents, gap])
 
   // Track shift key
   useEffect(() => {
@@ -190,14 +214,18 @@ export function SwarmProvider({
     }
   }, [])
 
-  // Refs to avoid stale closures in event handlers
+  // Refs for selection
   const startPosRef = useRef<Position | null>(null)
   const selectionRectRef = useRef<typeof selectionRect>(null)
   const selectedIdsRef = useRef(selectedIds)
 
-  // Keep refs in sync
-  selectionRectRef.current = selectionRect
-  selectedIdsRef.current = selectedIds
+  useEffect(() => {
+    selectionRectRef.current = selectionRect
+  }, [selectionRect])
+
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds
+  }, [selectedIds])
 
   // Rectangular selection with shift+drag
   useEffect(() => {
@@ -257,7 +285,14 @@ export function SwarmProvider({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Backspace' && selectedIds.size > 0) {
-        setLizards(prev => prev.filter(l => !selectedIds.has(l.id)))
+        selectedIds.forEach(id => {
+          storeDeleteAgent(id)
+          setVisuals(prev => {
+            const next = { ...prev }
+            delete next[id]
+            return next
+          })
+        })
         if (activeChatId && selectedIds.has(activeChatId)) {
           setActiveChatId(null)
         }
@@ -267,14 +302,12 @@ export function SwarmProvider({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedIds, lizards.length, activeChatId])
+  }, [selectedIds, activeChatId, storeDeleteAgent])
 
-  // Click outside to clear selection (but not chat)
+  // Click outside to clear selection
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      // Don't clear during shift+drag selection
       if (e.shiftKey) return
-
       const target = e.target as HTMLElement
       if (!target.closest('[data-selectable]') && !target.closest('[data-swarm-ui]')) {
         setSelectedIds(new Set())
@@ -285,76 +318,50 @@ export function SwarmProvider({
     return () => window.removeEventListener('click', handleClick)
   }, [])
 
-  const addLizard = useCallback((position?: Position) => {
-    setLizards(prev => {
-      const existingColors = prev.map(l => l.settings?.color ?? defaultSettings.color)
-      const newColor = randomDistinctColor(existingColors)
+  // Add new agent (creates in global store, visual auto-created by effect)
+  const addAgent = useCallback((position?: Position) => {
+    const id = `agent_${Date.now()}`
+    const agent: Agent = {
+      id,
+      taskId: '',  // No task yet
+      personaId: 'plain',
+      status: 'idle',
+    }
+    storeCreateAgent(agent)
 
-      // Calculate position if not provided
-      let newPosition: Position
-      if (position) {
-        newPosition = position
-      } else {
-        const LIZARD_SIZE = 90
-        const padding = 30
-        // Default: right bottom corner
-        const baseX = window.innerWidth - LIZARD_SIZE - padding
-        const baseY = window.innerHeight - LIZARD_SIZE - padding
+    // If position provided, override the auto-calculated one
+    if (position) {
+      const existingColors = Object.values(visualsRef.current).map(v => v.color)
+      const color = randomDistinctColor(existingColors)
+      setVisuals(prev => ({
+        ...prev,
+        [id]: { position, color },
+      }))
+    }
+  }, [storeCreateAgent])
 
-        if (prev.length === 0) {
-          // No agents - use bottom right
-          newPosition = { x: baseX, y: baseY }
-        } else {
-          // Get topmost lizard position (smallest y value among those near bottom-right)
-          const instances = Array.from(lizardInstancesRef.current.values())
-          let topY = baseY
-
-          // Find the topmost lizard in the stack
-          for (const instance of instances) {
-            const pos = instance.getPosition()
-            // Consider lizards in the right side of screen
-            if (pos.x > window.innerWidth / 2) {
-              topY = Math.min(topY, pos.y)
-            }
-          }
-
-          // Stack on top using same gap logic as arrange: size + gap
-          newPosition = { x: baseX, y: topY - (LIZARD_SIZE + gap) }
-        }
-      }
-
-      return [...prev, { id: Date.now().toString(), initialPosition: newPosition, settings: { color: newColor } }]
+  const deleteAgent = useCallback((id: string) => {
+    storeDeleteAgent(id)
+    setVisuals(prev => {
+      const next = { ...prev }
+      delete next[id]
+      return next
     })
-  }, [defaultSettings.color, gap])
-
-  const deleteLizard = useCallback((id: string) => {
-    setLizards(prev => prev.filter(l => l.id !== id))
     if (activeChatId === id) {
       setActiveChatId(null)
     }
-  }, [activeChatId])
+  }, [storeDeleteAgent, activeChatId])
 
-  const updateLizardColor = useCallback((id: string, color: string) => {
-    setLizards(prev => prev.map(l =>
-      l.id === id ? { ...l, settings: { ...l.settings, color } } : l
-    ))
+  const updateColor = useCallback((id: string, color: string) => {
+    setVisuals(prev => ({
+      ...prev,
+      [id]: { ...prev[id], color },
+    }))
   }, [])
 
-  const updateLizardName = useCallback((id: string, agentName: string) => {
-    setLizards(prev => prev.map(l =>
-      l.id === id ? { ...l, settings: { color: l.settings?.color ?? defaultSettings.color, ...l.settings, agentName } } : l
-    ))
-  }, [defaultSettings.color])
-
-  const getLizardName = useCallback((id: string): string | undefined => {
-    return lizards.find(l => l.id === id)?.settings?.agentName
-  }, [lizards])
-
-  const getAllLizardNames = useCallback((): string[] => {
-    return lizards
-      .map(l => l.settings?.agentName)
-      .filter((name): name is string => !!name)
-  }, [lizards])
+  const getVisual = useCallback((id: string): LizardVisual | undefined => {
+    return visuals[id]
+  }, [visuals])
 
   const openChat = useCallback((id: string, mode: ChatMode) => {
     setActiveChatId(id)
@@ -381,77 +388,6 @@ export function SwarmProvider({
     setSelectedIds(new Set())
   }, [])
 
-  // Worker lizard spawning for Gekto orchestration
-  // Use refs to track spawns that happen in quick succession
-  const workerCountRef = useRef(0)
-  const recentWorkerColorsRef = useRef<string[]>([])
-  const pendingWorkerCountRef = useRef(0)
-
-  const spawnWorkerLizard = useCallback((taskId: string, description: string): string => {
-    const id = `worker_${Date.now()}_${workerCountRef.current++}`
-
-    // Get all existing colors including recently spawned workers (for distinct colors)
-    const existingColors = [
-      ...lizardsRef.current.map(l => l.settings?.color ?? defaultSettings.color),
-      ...recentWorkerColorsRef.current,
-    ]
-    const newColor = randomDistinctColor(existingColors)
-    recentWorkerColorsRef.current.push(newColor)
-
-    // Clear recent colors after a short delay (batch spawns are done)
-    setTimeout(() => {
-      recentWorkerColorsRef.current = []
-      pendingWorkerCountRef.current = 0
-    }, 500)
-
-    // Position workers in grid pattern (like arrange does)
-    // Use ALL lizards count + pending spawns for proper grid positioning
-    const totalLizards = lizardsRef.current.length + pendingWorkerCountRef.current
-    pendingWorkerCountRef.current++
-
-    const WORKER_SIZE = 90
-    const GAP = -30
-    const padding = 30
-    const originX = window.innerWidth - WORKER_SIZE - padding
-    const originY = window.innerHeight - WORKER_SIZE - padding
-
-    // Grid layout: fill vertically first, then move left
-    const rows = Math.floor((window.innerHeight * 0.7) / (WORKER_SIZE + GAP)) || 1
-    const row = totalLizards % rows
-    const col = Math.floor(totalLizards / rows)
-
-    const position = {
-      x: originX - col * (WORKER_SIZE + GAP),
-      y: originY - row * (WORKER_SIZE + GAP),
-    }
-
-    setLizards(prev => [...prev, {
-      id,
-      initialPosition: position,
-      settings: {
-        color: newColor,
-        agentName: description.slice(0, 20),
-        isWorker: true,
-        taskId,
-      },
-    }])
-
-    return id
-  }, [defaultSettings.color])
-
-  const getWorkerLizards = useCallback((): LizardData[] => {
-    return lizards.filter(l => l.settings?.isWorker)
-  }, [lizards])
-
-  const cleanupWorkers = useCallback(() => {
-    setLizards(prev => prev.filter(l => !l.settings?.isWorker))
-  }, [])
-
-  const clearAllLizards = useCallback(() => {
-    setLizards([])
-    setActiveChatId(null)
-  }, [])
-
   const registerLizard = useCallback((id: string, getPosition: () => Position, setPosition: (pos: Position) => void, size: number) => {
     lizardInstancesRef.current.set(id, { id, getPosition, setPosition, size })
   }, [])
@@ -460,38 +396,20 @@ export function SwarmProvider({
     lizardInstancesRef.current.delete(id)
   }, [])
 
-  // Save lizards to server - use ref to avoid stale closure in arrange
-  const lizardsRef = useRef(lizards)
-  lizardsRef.current = lizards
-
-  // Register name extractor with AgentContext so names are extracted even when chat is closed
-  useEffect(() => {
-    setNameExtractor((lizardId: string, name: string) => {
-      setLizards(prev => prev.map(l =>
-        l.id === lizardId
-          ? { ...l, settings: { ...l.settings, color: l.settings?.color ?? DEFAULT_SETTINGS.color, agentName: name } }
-          : l
-      ))
-    })
-  }, [setNameExtractor])
-
-  const saveLizards = useCallback(() => {
-    const currentLizards = lizardsRef.current
-    const lizardData = currentLizards.map(l => {
-      const instance = lizardInstancesRef.current.get(l.id)
-      const position = instance ? instance.getPosition() : l.initialPosition
-      return { id: l.id, position, settings: l.settings }
+  const saveVisuals = useCallback(() => {
+    const data = Object.entries(visualsRef.current).map(([id, visual]) => {
+      const instance = lizardInstancesRef.current.get(id)
+      const position = instance ? instance.getPosition() : visual.position
+      return { id, position, color: visual.color }
     })
 
-    fetch('/__gekto/api/lizards', {
+    fetch('/__gekto/api/visuals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(lizardData),
-    })
-      .catch(err => console.error('[Swarm] Failed to save lizards:', err))
+      body: JSON.stringify(data),
+    }).catch(err => console.error('[Swarm] Failed to save visuals:', err))
   }, [])
 
-  // Arrange lizards in a pattern
   const arrange = useCallback(() => {
     const instances = Array.from(lizardInstancesRef.current.values())
     if (instances.length === 0) return
@@ -499,55 +417,38 @@ export function SwarmProvider({
     const avgSize = instances.reduce((sum, inst) => sum + inst.size, 0) / instances.length
     const padding = 30
 
-    let originX: number
-    let originY: number
-    let dirX: number
-    let dirY: number
+    let originX: number, originY: number, dirX: number, dirY: number
 
     switch (corner) {
       case 'top-left':
-        originX = padding
-        originY = padding
-        dirX = 1
-        dirY = 1
+        originX = padding; originY = padding; dirX = 1; dirY = 1
         break
       case 'top-right':
-        originX = window.innerWidth - avgSize - padding
-        originY = padding
-        dirX = -1
-        dirY = 1
+        originX = window.innerWidth - avgSize - padding; originY = padding; dirX = -1; dirY = 1
         break
       case 'bottom-left':
-        originX = padding
-        originY = window.innerHeight - avgSize - padding
-        dirX = 1
-        dirY = -1
+        originX = padding; originY = window.innerHeight - avgSize - padding; dirX = 1; dirY = -1
         break
       case 'bottom-right':
       default:
         originX = window.innerWidth - avgSize - padding
         originY = window.innerHeight - avgSize - padding
-        dirX = -1
-        dirY = -1
+        dirX = -1; dirY = -1
         break
     }
 
     instances.forEach((instance, index) => {
-      let x: number
-      let y: number
+      let x: number, y: number
 
       switch (arrangement) {
         case 'stack':
-          x = originX
-          y = originY
+          x = originX; y = originY
           break
         case 'row':
-          x = originX + dirX * index * (instance.size + gap)
-          y = originY
+          x = originX + dirX * index * (instance.size + gap); y = originY
           break
         case 'column':
-          x = originX
-          y = originY + dirY * index * (instance.size + gap)
+          x = originX; y = originY + dirY * index * (instance.size + gap)
           break
         case 'grid':
         default: {
@@ -563,29 +464,10 @@ export function SwarmProvider({
       instance.setPosition({ x, y })
     })
 
-    // Save after arrangement with small delay for positions to update
-    setTimeout(saveLizards, 50)
-  }, [arrangement, corner, gap, saveLizards])
+    setTimeout(saveVisuals, 50)
+  }, [arrangement, corner, gap, saveVisuals])
 
-  // Auto-save when lizards are added/removed (debounced)
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => {
-    // Skip initial render
-    if (lizards === initialLizards) return
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current)
-    }
-    saveTimeoutRef.current = setTimeout(saveLizards, 500)
-
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current)
-      }
-    }
-  }, [lizards, initialLizards, saveLizards])
-
-  // Arrange hotkey listener
+  // Arrange hotkey
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === arrangeHotkey) {
@@ -597,30 +479,23 @@ export function SwarmProvider({
   }, [arrangeHotkey, arrange])
 
   const value = useMemo<SwarmContextValue>(() => ({
-    lizards,
+    visuals,
     selectedIds,
     activeChatId,
     chatMode,
-    defaultSettings,
-    addLizard,
-    deleteLizard,
-    updateLizardColor,
-    updateLizardName,
-    getLizardName,
-    getAllLizardNames,
+    addAgent,
+    deleteAgent,
+    updateColor,
+    getVisual,
     openChat,
     closeChat,
     toggleSelection,
     clearSelection,
-    spawnWorkerLizard,
-    getWorkerLizards,
-    cleanupWorkers,
-    clearAllLizards,
     registerLizard,
     unregisterLizard,
     arrange,
-    saveLizards,
-  }), [lizards, selectedIds, activeChatId, chatMode, defaultSettings, addLizard, deleteLizard, updateLizardColor, updateLizardName, getLizardName, getAllLizardNames, openChat, closeChat, toggleSelection, clearSelection, spawnWorkerLizard, getWorkerLizards, cleanupWorkers, clearAllLizards, registerLizard, unregisterLizard, arrange, saveLizards])
+    saveVisuals,
+  }), [visuals, selectedIds, activeChatId, chatMode, addAgent, deleteAgent, updateColor, getVisual, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveVisuals])
 
   return (
     <SwarmContext.Provider value={value}>
@@ -645,4 +520,4 @@ function isPointInRect(point: Position, rect: { left: number; top: number; right
   return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom
 }
 
-export type { LizardData, LizardSettings, ChatMode, Position }
+export type { LizardVisual, ChatMode, Position }

@@ -3,49 +3,50 @@ import { LizardAvatar } from './LizardAvatar'
 import { ChatWindow, getChatSize } from './ChatWindow'
 import { useDraggable } from '../hooks/useDraggable'
 import { useCopyable } from '../hooks/useCopyable'
-import { useSwarm, type LizardSettings } from '../context/SwarmContext'
+import { useSwarm } from '../context/SwarmContext'
 import { useAgent } from '../context/AgentContext'
+import { useStore } from '../store/store'
 
 const LIZARD_SIZE = 90
 
 interface LizardProps {
-  id: string
-  initialPosition: { x: number; y: number }
-  settings?: LizardSettings
+  agentId: string
 }
 
-export function Lizard({ id, initialPosition, settings }: LizardProps) {
+export function Lizard({ agentId }: LizardProps) {
   const {
     selectedIds,
     activeChatId,
     chatMode,
-    defaultSettings,
-    addLizard,
+    addAgent,
     openChat,
     closeChat,
     toggleSelection,
     registerLizard,
     unregisterLizard,
-    saveLizards,
-    getLizardName,
+    saveVisuals,
+    getVisual,
   } = useSwarm()
 
-  const color = settings?.color ?? defaultSettings.color
-  // Use getLizardName to get live updates when name changes
-  const agentName = getLizardName(id)
+  // Get agent from global store
+  const agent = useStore((s) => s.agents[agentId])
+
+  // Get visual from SwarmContext (local state)
+  const visual = getVisual(agentId)
+  const color = visual?.color ?? '#BFFF6B'
+  const initialPosition = visual?.position ?? { x: 100, y: 100 }
 
   const { sessions, getLizardState } = useAgent()
-  // Subscribe to sessions to trigger re-render on state changes
-  const agentState = sessions.get(id)?.state ?? getLizardState(id)
+  const agentState = sessions.get(agentId)?.state ?? getLizardState(agentId)
 
-  const isSelected = selectedIds.has(id)
-  const isChatOpen = activeChatId === id
+  const isSelected = selectedIds.has(agentId)
+  const isChatOpen = activeChatId === agentId
 
   const [chatSize, setChatSize] = useState(getChatSize)
   const [showDone, setShowDone] = useState(false)
   const prevStateRef = useRef(agentState)
 
-  // Show done icon when agent finishes (until user opens chat)
+  // Show done icon when agent finishes
   useEffect(() => {
     if (prevStateRef.current === 'working' && agentState === 'ready') {
       setShowDone(true)
@@ -61,7 +62,7 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
   }, [isChatOpen, showDone])
 
   const { isCopying, copyOrigin, startCopy, endCopy } = useCopyable({
-    onCopy: addLizard,
+    onCopy: addAgent,
   })
 
   const { ref, position, setPosition, isDragging, hasMoved, handlers } = useDraggable({
@@ -73,20 +74,18 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
     },
     onDragEnd: (pos, moved, isAltKey) => {
       if (isAltKey && moved && copyOrigin) {
-        // Create new lizard at drop position, snap original back to origin
         endCopy(true, pos)
         setPosition(copyOrigin)
       } else {
         endCopy(false)
-        // Save position after drag (only if not copying - copy saves via addLizard)
         if (moved) {
-          saveLizards()
+          saveVisuals()
         }
       }
     },
   })
 
-  // Register position for rectangular selection and arrangement
+  // Register position for selection and arrangement
   const positionRef = useRef(position)
 
   useEffect(() => {
@@ -95,23 +94,25 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
 
   useEffect(() => {
     const getPosition = () => positionRef.current
-    registerLizard(id, getPosition, setPosition, LIZARD_SIZE)
-    return () => unregisterLizard(id)
-  }, [id, registerLizard, unregisterLizard, setPosition])
+    registerLizard(agentId, getPosition, setPosition, LIZARD_SIZE)
+    return () => unregisterLizard(agentId)
+  }, [agentId, registerLizard, unregisterLizard, setPosition])
 
   const handleClick = (e: React.MouseEvent) => {
     if (!hasMoved()) {
       if (e.shiftKey) {
-        toggleSelection(id, true)
+        toggleSelection(agentId, true)
         return
       }
-      openChat(id, 'task')
+      openChat(agentId, 'task')
     }
   }
 
+  if (!agent) return null
+
   return (
     <>
-      {/* Original lizard - stays solid at origin when copying */}
+      {/* Original lizard at copy origin */}
       {isCopying && copyOrigin && (
         <div
           className="fixed pointer-events-none"
@@ -125,7 +126,7 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
         </div>
       )}
 
-      {/* Lizard Button - dragged copy is transparent when copying */}
+      {/* Main lizard */}
       <div
         ref={ref}
         data-selectable
@@ -142,58 +143,9 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
         onClick={handleClick}
       >
         <LizardAvatar size={LIZARD_SIZE} color={color} isSpinning={agentState === 'working'} disableMouseFollow={showDone} />
-
-        {/* Status indicator - flickering circle on left side */}
-        {/* {(agentState !== 'ready' || showDone) && (
-          <div
-            className="absolute flex items-center justify-center"
-            style={{
-              top: 4,
-              left: 4,
-              width: 22,
-              height: 22,
-              borderRadius: '50%',
-              fontSize: 11,
-              color: 'white',
-              background: agentState === 'error'
-                ? 'rgba(239, 68, 68, 0.9)'
-                : agentState === 'working'
-                ? 'rgba(59, 130, 246, 0.9)'
-                : 'rgba(60, 60, 70, 0.95)',
-              border: '2px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: agentState === 'working'
-                ? '0 0 12px rgba(59, 130, 246, 0.6), 0 0 24px rgba(59, 130, 246, 0.3)'
-                : '0 2px 6px rgba(0,0,0,0.4)',
-              animation: agentState === 'working' ? 'flicker 1.5s ease-in-out infinite' : 'none',
-            }}
-          >
-            {showDone && agentState === 'ready' && '✓'}
-            {agentState === 'working' && '⚡'}
-            {agentState === 'queued' && '⏳'}
-            {agentState === 'error' && '!'}
-          </div>
-        )} */}
-
-        {/* Agent name on left side */}
-        {agentName && (
-          <div
-            className="absolute whitespace-nowrap pointer-events-none"
-            style={{
-              top: '50%',
-              right: LIZARD_SIZE + 8,
-              transform: 'translateY(-50%)',
-              fontSize: 12,
-              fontWeight: 500,
-              color: 'rgba(255, 255, 255, 0.9)',
-              textShadow: '0 1px 3px rgba(0, 0, 0, 0.5)',
-            }}
-          >
-            {agentName}
-          </div>
-        )}
       </div>
 
-      {/* Chat Window - positioned to the left of lizard, lizard at bottom */}
+      {/* Chat Window */}
       {isChatOpen && (
         <div
           className="fixed"
@@ -205,7 +157,7 @@ export function Lizard({ id, initialPosition, settings }: LizardProps) {
           }}
         >
           <ChatWindow
-            lizardId={id}
+            lizardId={agentId}
             title={chatMode === 'plan' ? 'Plan Mode' : 'Gekto Chat'}
             onClose={closeChat}
             onResize={setChatSize}
