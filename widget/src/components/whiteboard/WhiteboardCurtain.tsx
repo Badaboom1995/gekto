@@ -1,0 +1,301 @@
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { Tldraw, Editor, createShapeId } from 'tldraw'
+import { DashboardIcon } from '@radix-ui/react-icons'
+import { TaskShapeUtil } from './TaskShape'
+import { useWhiteboardSync } from './useWhiteboardSync'
+import { useWhiteboardPositions } from './useWhiteboardPositions'
+
+// Custom shape utils for tldraw
+const customShapeUtils = [TaskShapeUtil]
+
+interface WhiteboardCurtainProps {
+  persistenceKey?: string
+}
+
+// Export editor ref for programmatic access
+export let whiteboardEditor: Editor | null = null
+
+export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: WhiteboardCurtainProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null)
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const editorRef = useRef<Editor | null>(null)
+
+  // Sync agents to TaskShapes on the whiteboard
+  // useWhiteboardSync(editor)
+
+  // Persist and manage shape positions
+  useWhiteboardPositions(editor)
+
+  // Setup portal container on mount (preload)
+  useEffect(() => {
+    const div = document.createElement('div')
+    div.id = 'gekto-whiteboard-portal'
+    div.style.position = 'relative'
+    div.style.zIndex = '99990' // Below lizards (99999) but above page content
+    document.body.appendChild(div)
+
+    // Inject tldraw CSS
+    const styleId = 'tldraw-portal-styles'
+    if (!document.getElementById(styleId)) {
+      const link = document.createElement('link')
+      link.id = styleId
+      link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/tldraw@3/tldraw.css'
+      document.head.appendChild(link)
+    }
+
+    setPortalContainer(div)
+
+    return () => {
+      div.remove()
+    }
+  }, [])
+
+  const handleOpen = useCallback(() => {
+    setIsOpen(true)
+  }, [])
+
+  const handleClose = useCallback(() => {
+    setIsOpen(false)
+  }, [])
+
+  const handleAddTask = useCallback(() => {
+    if (!editor) return
+
+    // Get viewport center for placement
+    const viewportBounds = editor.getViewportScreenBounds()
+    const viewportCenter = editor.screenToPage({
+      x: viewportBounds.x + viewportBounds.width / 2,
+      y: viewportBounds.y + viewportBounds.height / 2,
+    })
+
+    // Card dimensions and grid layout
+    const CARD_WIDTH = 300
+    const CARD_HEIGHT = 200
+    const GAP = 20
+    const COLS = 4
+
+    // Sample tasks showcasing all variations
+    const sampleTasks = [
+      // Row 1: Different statuses
+      { title: 'Pending Task', abstract: 'Just started...', status: 'pending' },
+      { title: 'Reading Files', abstract: 'Scanning codebase for context...', status: 'READ', message: 'Reading src/components/*.tsx' },
+      { title: 'Writing Code', abstract: 'Implementing user authentication', status: 'WRITE', branch: 'feature/auth-flow' },
+      { title: 'Running Tests', abstract: 'Executing test suite', status: 'BASH', message: 'npm run test' },
+
+      // Row 2: More tool statuses + completion states
+      { title: 'Search Task', abstract: 'Looking for API endpoints', status: 'GREP', message: 'Searching for "router.get"' },
+      { title: 'Edit Config', abstract: 'Updating tsconfig settings', status: 'EDIT', branch: 'fix/typescript-config' },
+      { title: 'Completed Task', abstract: 'Added new store component with Zustand', status: 'done', branch: 'feature/store', message: 'diff +142 -28' },
+      { title: 'Failed Task', abstract: 'Attempted to fix build errors', status: 'error', message: 'Agent stopped: Out of tokens' },
+
+      // Row 3: Action variations
+      { title: 'Needs Approval', abstract: 'Ready to commit changes to main', status: 'pending', branch: 'main', message: 'action:Approve:Review and merge 3 files' },
+      { title: 'Review Changes', abstract: 'Refactored authentication module', status: 'done', branch: 'refactor/auth', message: 'action:View Diff:15 files changed' },
+      { title: 'With Branch', abstract: 'Working on new feature', status: 'READ', branch: 'feature/dashboard-widgets' },
+      { title: 'No Branch', abstract: 'Quick investigation task', status: 'GREP' },
+    ]
+
+    // Calculate starting position (top-left of grid)
+    const gridWidth = COLS * CARD_WIDTH + (COLS - 1) * GAP
+    const startX = viewportCenter.x - gridWidth / 2
+    const startY = viewportCenter.y - CARD_HEIGHT
+
+    // Create all sample tasks in a grid
+    const shapeIds = sampleTasks.map((task, index) => {
+      const col = index % COLS
+      const row = Math.floor(index / COLS)
+      const x = startX + col * (CARD_WIDTH + GAP)
+      const y = startY + row * (CARD_HEIGHT + GAP)
+
+      // Build props object, only including optional fields if they have values
+      const props: Record<string, unknown> = {
+        w: CARD_WIDTH,
+        h: CARD_HEIGHT,
+        title: task.title,
+        abstract: task.abstract,
+        status: task.status,
+      }
+      if (task.branch) props.branch = task.branch
+      if (task.message) props.message = task.message
+
+      const shapeId = createShapeId()
+      editor.createShape({
+        id: shapeId,
+        type: 'task' as const,
+        x,
+        y,
+        props,
+      } as any)
+
+      return shapeId
+    })
+
+    // Select all new shapes
+    editor.select(...shapeIds)
+  }, [editor])
+
+  return (
+    <>
+      {/* Curtain Handle - always visible at top */}
+      {!isOpen && (
+        <div
+          onClick={handleOpen}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            cursor: 'pointer',
+          }}
+          className="group"
+        >
+          <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-b from-zinc-700 to-zinc-800 rounded-b-lg border border-t-0 border-zinc-600 shadow-lg group-hover:from-zinc-600 group-hover:to-zinc-700 transition-all duration-200">
+            <DashboardIcon className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+            <span className="text-xs font-medium text-zinc-400 group-hover:text-white transition-colors">
+              Whiteboard
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Tldraw rendered outside shadow DOM via portal */}
+      {portalContainer && createPortal(
+        <div
+          // @ts-expect-error - inert is a valid HTML attribute
+          inert={!isOpen ? '' : undefined}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 500, // Below lizards (1000+)
+            background: '#1e1e1e',
+            transform: isOpen ? 'translateY(0)' : 'translateY(-100%)',
+            transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+            pointerEvents: isOpen ? 'auto' : 'none',
+          }}
+        >
+          <Tldraw
+            persistenceKey={persistenceKey}
+            shapeUtils={customShapeUtils}
+            onMount={(newEditor) => {
+              editorRef.current = newEditor
+              whiteboardEditor = newEditor
+              setEditor(newEditor)
+              newEditor.user.updateUserPreferences({ colorScheme: 'dark' })
+            }}
+          />
+
+          {/* Toolbar */}
+          <div
+            style={{
+              position: 'absolute',
+              top: 16,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            {/* Add Task button */}
+            <button
+              onClick={handleAddTask}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 16px',
+                background: 'rgba(59, 130, 246, 0.9)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid #3b82f6',
+                borderRadius: 8,
+                color: '#fff',
+                cursor: 'pointer',
+                fontFamily: 'system-ui, sans-serif',
+                fontSize: 12,
+                fontWeight: 500,
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#3b82f6'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.9)'
+              }}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+              Add Task
+            </button>
+
+            {/* Roll-up handle */}
+            <button
+              onClick={handleClose}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 16px',
+                background: 'rgba(39, 39, 42, 0.9)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid #3f3f46',
+                borderRadius: 8,
+                color: '#a1a1aa',
+                cursor: 'pointer',
+                fontFamily: 'system-ui, sans-serif',
+                fontSize: 12,
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#3f3f46'
+                e.currentTarget.style.color = '#fff'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(39, 39, 42, 0.9)'
+                e.currentTarget.style.color = '#a1a1aa'
+              }}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 21V3" />
+                <path d="m8 8 4-4 4 4" />
+              </svg>
+              Roll up
+            </button>
+          </div>
+        </div>,
+        portalContainer
+      )}
+    </>
+  )
+}
+
+export default WhiteboardCurtain
