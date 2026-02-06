@@ -64,11 +64,6 @@ export interface Plan {
 
 export type PlanStatus = 'pending' | 'running' | 'done' | 'canceled'
 
-export interface LizardVisual {
-  position: { x: number; y: number }
-  color: string
-}
-
 // ============ Store State ============
 
 interface GektoState {
@@ -76,7 +71,6 @@ interface GektoState {
   tasks: Record<string, Task>
   agents: Record<string, Agent>
   plans: Record<string, Plan>
-  lizards: Record<string, LizardVisual>
 }
 
 interface GektoActions {
@@ -104,12 +98,6 @@ interface GektoActions {
   updatePersona: (id: string, updates: Partial<Persona>) => void
   deletePersona: (id: string) => void
 
-  // Lizards
-  setLizardVisual: (agentId: string, visual: LizardVisual) => void
-  updateLizardPosition: (agentId: string, x: number, y: number) => void
-  updateLizardColor: (agentId: string, color: string) => void
-  deleteLizardVisual: (agentId: string) => void
-
   // Bulk
   reset: () => void
 }
@@ -129,7 +117,6 @@ const INITIAL_STATE: GektoState = {
   tasks: {},
   agents: {},
   plans: {},
-  lizards: {},
 }
 
 // ============ Server Storage ============
@@ -230,11 +217,10 @@ export const useStore = create<GektoStore>()(
       deleteAgent: (id) => {
         set((s) => ({
           agents: Object.fromEntries(Object.entries(s.agents).filter(([k]) => k !== id)),
-          lizards: Object.fromEntries(Object.entries(s.lizards).filter(([k]) => k !== id)),
         }))
       },
       clearAllAgents: () => {
-        set({ agents: {}, lizards: {} })
+        set({ agents: {} })
       },
 
       // Plans
@@ -290,30 +276,6 @@ export const useStore = create<GektoStore>()(
         set((s) => ({ personas: s.personas.filter((p) => p.id !== id) }))
       },
 
-      // Lizards
-      setLizardVisual: (agentId, visual) => {
-        set((s) => ({ lizards: { ...s.lizards, [agentId]: visual } }))
-      },
-      updateLizardPosition: (agentId, x, y) => {
-        set((s) => {
-          const visual = s.lizards[agentId]
-          if (!visual) return s
-          return { lizards: { ...s.lizards, [agentId]: { ...visual, position: { x, y } } } }
-        })
-      },
-      updateLizardColor: (agentId, color) => {
-        set((s) => {
-          const visual = s.lizards[agentId]
-          if (!visual) return s
-          return { lizards: { ...s.lizards, [agentId]: { ...visual, color } } }
-        })
-      },
-      deleteLizardVisual: (agentId) => {
-        set((s) => ({
-          lizards: Object.fromEntries(Object.entries(s.lizards).filter(([k]) => k !== agentId)),
-        }))
-      },
-
       // Bulk
       reset: () => set(INITIAL_STATE),
     }),
@@ -325,7 +287,6 @@ export const useStore = create<GektoStore>()(
         tasks: state.tasks,
         agents: state.agents,
         plans: state.plans,
-        lizards: state.lizards,
       }),
     }
   )
@@ -340,7 +301,6 @@ export const selectAgent = (id: string) => (state: GektoStore) => state.agents[i
 export const selectPlans = (state: GektoStore) => state.plans
 export const selectPlan = (id: string) => (state: GektoStore) => state.plans[id]
 export const selectPersonas = (state: GektoStore) => state.personas
-export const selectLizards = (state: GektoStore) => state.lizards
 
 // ============ Helper to get agent by task ============
 
