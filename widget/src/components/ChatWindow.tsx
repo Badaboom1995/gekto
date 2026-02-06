@@ -3,8 +3,8 @@ import { LightningBoltIcon, FileTextIcon, StopIcon, TrashIcon } from '@radix-ui/
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
-import { useSwarm } from '../context/SwarmContext'
 import { useGekto } from '../context/GektoContext'
+import { useStore } from '../store/store'
 
 const MASTER_ID = 'master'
 const CHAT_SIZE_KEY = 'gekto-chat-size'
@@ -81,8 +81,14 @@ export function ChatWindow({
     killAgent,
   } = useAgent()
 
-  const { getLizardName, getAllLizardNames } = useSwarm()
   const { createPlan, currentPlan, openPlanPanel, directMode, setDirectMode, markTaskInProgress } = useGekto()
+
+  // Get agent/task names from global store
+  const agents = useStore((s) => s.agents)
+  const tasks = useStore((s) => s.tasks)
+  const agent = agents[lizardId]
+  const task = agent?.taskId ? tasks[agent.taskId] : undefined
+  const agentName = task?.name
 
   const isMaster = lizardId === MASTER_ID
   const hasActivePlan = isMaster && currentPlan && currentPlan.status !== 'completed' && currentPlan.status !== 'failed'
@@ -93,7 +99,6 @@ export function ChatWindow({
   const currentTool = getCurrentTool(lizardId)
   const permissionRequest = getPermissionRequest(lizardId)
   const queuePosition = getQueuePosition(lizardId)
-  const agentName = getLizardName(lizardId)
   const workingDir = getWorkingDir()
 
   // Handle incoming messages from agent (name extraction is done in AgentContext)
@@ -296,7 +301,10 @@ export function ChatWindow({
     // If no agent name yet, prepend meta instruction to first message
     let messageToSend = userMessage
     if (!agentName) {
-      const existingNames = getAllLizardNames()
+      // Get all existing task names to avoid duplicates
+      const existingNames = Object.values(tasks)
+        .map(t => t.name)
+        .filter((name): name is string => !!name)
       const avoidClause = existingNames.length > 0
         ? ` Avoid these names already taken: ${existingNames.join(', ')}.`
         : ''
@@ -324,6 +332,9 @@ export function ChatWindow({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Stop propagation for all keys to prevent tldraw from capturing them
+    e.stopPropagation()
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
