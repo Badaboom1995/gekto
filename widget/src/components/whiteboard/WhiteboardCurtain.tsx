@@ -1,10 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Tldraw, Editor, createShapeId } from 'tldraw'
-import { DashboardIcon } from '@radix-ui/react-icons'
 import { TaskShapeUtil } from './TaskShape'
-import { useWhiteboardSync } from './useWhiteboardSync'
-import { useWhiteboardPositions } from './useWhiteboardPositions'
+import { useAgentShapeSync } from './useAgentShapeSync'
+import { useStore } from '../../store/store'
 
 // Custom shape utils for tldraw
 const customShapeUtils = [TaskShapeUtil]
@@ -16,24 +15,47 @@ interface WhiteboardCurtainProps {
 // Export editor ref for programmatic access
 export let whiteboardEditor: Editor | null = null
 
+// Export function to open whiteboard from outside
+let openWhiteboardFn: (() => void) | null = null
+export function openWhiteboard() {
+  openWhiteboardFn?.()
+}
+
 export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: WhiteboardCurtainProps) {
   const [isOpen, setIsOpen] = useState(false)
+
+  // Register the open function in effect
+  useEffect(() => {
+    openWhiteboardFn = () => setIsOpen(true)
+    return () => { openWhiteboardFn = null }
+  }, [])
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
   const editorRef = useRef<Editor | null>(null)
 
-  // Sync agents to TaskShapes on the whiteboard
-  // useWhiteboardSync(editor)
+  // Get agents and tasks from store
+  const agents = useStore((s) => s.agents)
+  const tasks = useStore((s) => s.tasks)
 
-  // Persist and manage shape positions
-  useWhiteboardPositions(editor)
+  // Build agentsWithTasks array for sync hook
+  const agentsWithTasks = useMemo(() =>
+    Object.values(agents).map(agent => ({
+      agent,
+      task: tasks[agent.taskId],
+    })),
+    [agents, tasks]
+  )
+
+  // Sync agents to TaskShapes (Zustand → tldraw)
+  // Positions managed by tldraw via persistenceKey
+  useAgentShapeSync(editor, agentsWithTasks)
 
   // Setup portal container on mount (preload)
   useEffect(() => {
     const div = document.createElement('div')
     div.id = 'gekto-whiteboard-portal'
     div.style.position = 'relative'
-    div.style.zIndex = '99990' // Below lizards (99999) but above page content
+    div.style.zIndex = '500' // Below lizards (1000+)
     document.body.appendChild(div)
 
     // Inject tldraw CSS
@@ -51,10 +73,6 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
     return () => {
       div.remove()
     }
-  }, [])
-
-  const handleOpen = useCallback(() => {
-    setIsOpen(true)
   }, [])
 
   const handleClose = useCallback(() => {
@@ -139,32 +157,6 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
 
   return (
     <>
-      {/* Curtain Handle - always visible at top */}
-      {!isOpen && (
-        <div
-          onClick={handleOpen}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 999,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            cursor: 'pointer',
-          }}
-          className="group"
-        >
-          <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-b from-zinc-700 to-zinc-800 rounded-b-lg border border-t-0 border-zinc-600 shadow-lg group-hover:from-zinc-600 group-hover:to-zinc-700 transition-all duration-200">
-            <DashboardIcon className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
-            <span className="text-xs font-medium text-zinc-400 group-hover:text-white transition-colors">
-              Whiteboard
-            </span>
-          </div>
-        </div>
-      )}
-
       {/* Tldraw rendered outside shadow DOM via portal */}
       {portalContainer && createPortal(
         <div

@@ -135,6 +135,7 @@ export function Lizard({ agentId }: LizardProps) {
           left: position.x,
           top: position.y,
           zIndex: isCopying ? 1001 : 1000,
+          pointerEvents: 'auto',
           opacity: isCopying ? 0.4 : 1,
           transition: isDragging ? 'transform 0.2s ease-out' : 'left 0.4s ease-out, top 0.4s ease-out, transform 0.2s ease-out, filter 0.2s ease-out',
           filter: isSelected ? 'brightness(1.4) drop-shadow(0 0 12px rgba(100, 200, 255, 0.8))' : 'none',
@@ -154,6 +155,7 @@ export function Lizard({ agentId }: LizardProps) {
             left: position.x - chatSize.width - 20,
             top: position.y + LIZARD_SIZE - chatSize.height,
             zIndex: 1002,
+            pointerEvents: 'auto',
           }}
         >
           <ChatWindow

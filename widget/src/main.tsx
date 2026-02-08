@@ -7,6 +7,10 @@ function mountWidget() {
   // Create container
   const container = document.createElement('div')
   container.id = 'gekto-root'
+  container.style.position = 'fixed'
+  container.style.inset = '0'
+  container.style.pointerEvents = 'none'
+  container.style.zIndex = '99999' // Above whiteboard curtain
   document.body.appendChild(container)
 
   // Attach Shadow DOM for style isolation

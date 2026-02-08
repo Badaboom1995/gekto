@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChatBubbleIcon, PlusCircledIcon, Cross2Icon } from '@radix-ui/react-icons'
+import { ChatBubbleIcon, PlusCircledIcon, Cross2Icon, DashboardIcon } from '@radix-ui/react-icons'
 import { LizardAvatar } from './LizardAvatar'
 import { ChatWindow, getChatSize } from './ChatWindow'
 import { GektoPlanPanel } from './GektoPlanPanel'
@@ -9,6 +9,7 @@ import { useSwarm } from '../context/SwarmContext'
 import { useAgent } from '../context/AgentContext'
 import { useGekto } from '../context/GektoContext'
 import { useStore } from '../store/store'
+import { openWhiteboard } from './whiteboard'
 
 const MASTER_LIZARD_SIZE = 140
 const MASTER_ID = 'master'
@@ -50,6 +51,14 @@ export function MasterLizard() {
       label: 'Spawn Agent',
       onClick: () => {
         addAgent()
+      },
+    },
+    {
+      id: 'whiteboard',
+      icon: <DashboardIcon width={20} height={20} />,
+      label: 'Whiteboard',
+      onClick: () => {
+        openWhiteboard()
       },
     },
     {
@@ -115,6 +124,7 @@ export function MasterLizard() {
           left: position.x,
           top: position.y,
           zIndex: 1000,
+          pointerEvents: 'auto',
           transition: isDragging ? 'transform 0.2s ease-out' : 'left 0.4s ease-out, top 0.4s ease-out, transform 0.2s ease-out',
         }}
         onMouseDown={handlers.onMouseDown}
@@ -157,11 +167,12 @@ export function MasterLizard() {
 
       {/* Radial Menu - rendered outside lizard div with higher z-index */}
       <div
-        className="fixed pointer-events-none"
+        className="fixed"
         style={{
           left: position.x,
           top: position.y,
           zIndex: 1002,
+          pointerEvents: 'none',
         }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -183,6 +194,7 @@ export function MasterLizard() {
             left: position.x + MASTER_LIZARD_SIZE + 20,
             top: position.y + MASTER_LIZARD_SIZE - chatSize.height,
             zIndex: 1002,
+            pointerEvents: 'auto',
           }}
         >
           <ChatWindow

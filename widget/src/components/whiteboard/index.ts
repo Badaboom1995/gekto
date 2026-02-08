@@ -1,6 +1,6 @@
-export { WhiteboardCurtain, whiteboardEditor } from './WhiteboardCurtain'
+export { WhiteboardCurtain, whiteboardEditor, openWhiteboard } from './WhiteboardCurtain'
 export { SimpleWhiteboard } from './SimpleWhiteboard'
 export { TaskShapeUtil, type TaskShape, type TaskStatus } from './TaskShape'
-export { useWhiteboardSync } from './useWhiteboardSync'
+export { useAgentShapeSync } from './useAgentShapeSync'
 export { createShapeId } from 'tldraw'
 export { default } from './WhiteboardCurtain'

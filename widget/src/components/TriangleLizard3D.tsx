@@ -178,7 +178,7 @@ export function TriangleLizard3D({
   }, [])
 
   return (
-    <div className={className} style={{ width: size, height: size }}>
+    <div className={className} style={{ width: size, height: size, pointerEvents: 'none' }}>
       <Canvas camera={{ position: [0, 0, 3], fov: 45 }} style={{ pointerEvents: 'none' }}>
         <ambientLight intensity={1.3} />
         <pointLight position={[3, 1, 10]} intensity={1} />

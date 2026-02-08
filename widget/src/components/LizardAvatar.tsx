@@ -38,6 +38,7 @@ export function LizardAvatar({ size, isShaking = false, isSpinning = false, foll
     <div
       style={{
         animation: isShaking ? 'shake 0.5s ease-in-out' : 'none',
+        pointerEvents: 'none',
       }}
     >
       <style>{`
