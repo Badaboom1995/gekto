@@ -7,8 +7,15 @@ import {
 } from 'tldraw'
 import type { TLBaseShape, TLResizeInfo } from 'tldraw'
 
+// Global callback for opening chat - set by WhiteboardCurtain
+let onOpenChatCallback: ((agentId: string) => void) | null = null
+
+export function setOnOpenChat(callback: ((agentId: string) => void) | null) {
+  onOpenChatCallback = callback
+}
+
 // Define the status type for agent activities
-export type TaskStatus = 'READ' | 'WRITE' | 'BASH' | 'GREP' | 'EDIT' | 'done' | 'error' | 'pending'
+export type TaskStatus = 'READ' | 'WRITE' | 'BASH' | 'GREP' | 'EDIT' | 'done' | 'error' | 'pending' | 'idle'
 
 // Define the shape type
 export type TaskShape = TLBaseShape<
@@ -22,6 +29,7 @@ export type TaskShape = TLBaseShape<
     status: TaskStatus
     message?: string         // Bottom zone for errors/results
     agentId?: string         // Link to agent in AgentStore
+    workingDir?: string      // Agent's root location
   }
 >
 
@@ -32,9 +40,10 @@ const taskShapeProps = {
   title: T.string,
   abstract: T.string,
   branch: T.string.optional(),
-  status: T.literalEnum('READ', 'WRITE', 'BASH', 'GREP', 'EDIT', 'done', 'error', 'pending'),
+  status: T.literalEnum('READ', 'WRITE', 'BASH', 'GREP', 'EDIT', 'done', 'error', 'pending', 'idle'),
   message: T.string.optional(),
   agentId: T.string.optional(),
+  workingDir: T.string.optional(),
 }
 
 const DEFAULT_HEIGHT = 200
@@ -76,6 +85,7 @@ const STATUS_COLORS: Record<TaskStatus, { accent: string; label: string }> = {
   done: { accent: '#22c55e', label: 'DONE' },
   error: { accent: '#ef4444', label: 'ERROR' },
   pending: { accent: '#f59e0b', label: 'PENDING' },
+  idle: { accent: '#6b7280', label: 'IDLE' },
 }
 
 // Using 'any' for generic to work around tldraw's strict built-in shape types
@@ -115,24 +125,16 @@ export class TaskShapeUtil extends ShapeUtil<any> {
 
 
   component(shape: TaskShape) {
-    const { w, h, title, abstract, branch, status, message } = shape.props
+    const { w, h, title, abstract, branch, status, message, agentId, workingDir } = shape.props
     const statusInfo = STATUS_COLORS[status]
     const isRunning = ['READ', 'WRITE', 'BASH', 'GREP', 'EDIT'].includes(status)
 
-    const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      this.editor.updateShape({
-        id: shape.id,
-        type: 'task',
-        props: { title: e.target.value },
-      } as any)
-    }
-
-    const handleAbstractChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      this.editor.updateShape({
-        id: shape.id,
-        type: 'task',
-        props: { abstract: e.target.value },
-      } as any)
+    const handleTitleClick = (e: React.PointerEvent) => {
+      e.stopPropagation()
+      e.preventDefault()
+      if (agentId && onOpenChatCallback) {
+        onOpenChatCallback(agentId)
+      }
     }
 
     return (
@@ -167,57 +169,64 @@ export class TaskShapeUtil extends ShapeUtil<any> {
               borderBottom: branch ? 'none' : `1px solid ${BASE_COLORS.border}`,
             }}
           >
-            {/* Title */}
-            <input
-              value={title}
-              onChange={handleTitleChange}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-              placeholder="Task title..."
+            {/* Title - clickable to open chat */}
+            <div
+              onPointerDown={handleTitleClick}
               style={{
                 flex: 1,
-                border: 'none',
-                background: 'transparent',
                 fontSize: 20,
                 fontWeight: 600,
-                color: BASE_COLORS.text,
-                outline: 'none',
+                color: '#ffffff',
+                cursor: agentId ? 'pointer' : 'default',
                 minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
               }}
-            />
-
-            {/* Status Badge */}
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '4px 10px',
-                borderRadius: 5,
-                background: statusInfo.accent + '20',
-                color: statusInfo.accent,
-                fontSize: 14,
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                flexShrink: 0,
-                animation: isRunning ? 'pulse 1.5s ease-in-out infinite' : 'none',
+              onMouseEnter={(e) => {
+                if (agentId) e.currentTarget.style.textDecoration = 'underline'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.textDecoration = 'none'
               }}
             >
-              {isRunning && (
-                <div
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: '50%',
-                    border: `2px solid ${statusInfo.accent}`,
-                    borderTopColor: 'transparent',
-                    animation: 'spin 0.8s linear infinite',
-                  }}
-                />
-              )}
-              {statusInfo.label}
-            </span>
+              {title || 'Untitled Task'}
+            </div>
+
+            {/* Status Badge - hidden when idle */}
+            {status !== 'idle' && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '4px 10px',
+                  borderRadius: 5,
+                  background: statusInfo.accent + '20',
+                  color: statusInfo.accent,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  flexShrink: 0,
+                  animation: isRunning ? 'pulse 1.5s ease-in-out infinite' : 'none',
+                }}
+              >
+                {isRunning && (
+                  <div
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: '50%',
+                      border: `2px solid ${statusInfo.accent}`,
+                      borderTopColor: 'transparent',
+                      animation: 'spin 0.8s linear infinite',
+                    }}
+                  />
+                )}
+                {statusInfo.label}
+              </span>
+            )}
           </div>
 
           {/* Branch (optional) - directly under header */}
@@ -259,7 +268,7 @@ export class TaskShapeUtil extends ShapeUtil<any> {
               value={abstract}
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}
-              placeholder="What's being worked on..."
+              placeholder="Agent is free and waiting for instructions..."
               style={{
                 width: '100%',
                 height: '100%',
@@ -278,6 +287,33 @@ export class TaskShapeUtil extends ShapeUtil<any> {
           {/* Dynamic Block: Action / Error / Result */}
           {message && (
             <DynamicBlock status={status} message={message} />
+          )}
+
+          {/* Footer: Working directory */}
+          {workingDir && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '6px 12px',
+                borderTop: `1px solid ${BASE_COLORS.border}`,
+                background: '#1a1a1a',
+                fontSize: 11,
+                color: BASE_COLORS.textMuted,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: 'ui-monospace, monospace',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={workingDir}
+              >
+                {workingDir.split('/').slice(-2).join('/')}
+              </span>
+            </div>
           )}
         </div>
       </HTMLContainer>

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process'
+import { CLAUDE_PATH } from '../claudePath.js'
 
 export interface AgentResponse {
   type: string
@@ -33,7 +34,6 @@ export class HeadlessAgent {
 
   kill(): boolean {
     if (this.currentProc && !this.currentProc.killed) {
-      console.log('[HeadlessAgent] Killing process:', this.currentProc.pid)
       this.currentProc.kill('SIGTERM')
       this.currentProc = null
       return true
@@ -66,23 +66,23 @@ export class HeadlessAgent {
       args.push('--resume', this.sessionId)
     }
 
-    console.log('[HeadlessAgent] Running: claude', args.join(' '))
-
-    const response = await this.runClaudeStreaming(args, callbacks)
-    console.log('[HeadlessAgent] Response received')
-    console.log('[HeadlessAgent] Result:', response.result?.substring(0, 100))
-    return response
+    return this.runClaudeStreaming(args, callbacks)
   }
 
   private runClaudeStreaming(args: string[], callbacks?: StreamCallbacks): Promise<AgentResponse> {
     return new Promise((resolve, reject) => {
-      const proc = spawn('claude', args, {
+      console.log(`[HeadlessAgent] Spawning: "${CLAUDE_PATH}"`)
+
+      const proc = spawn(CLAUDE_PATH, args, {
         cwd: this.config.workingDir || process.cwd(),
         env: process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       })
+
+      proc.on('error', (err) => {
+        console.error(`[HeadlessAgent] Spawn error:`, err)
+      })
       this.currentProc = proc
-      console.log('[HeadlessAgent] Spawned claude with pid:', proc.pid)
 
       // Close stdin immediately - we pass everything via args
       proc.stdin?.end()
@@ -113,18 +113,17 @@ export class HeadlessAgent {
               lastResult = event
               this.sessionId = event.session_id
             }
-          } catch (err) {
-            console.error('[HeadlessAgent] Failed to parse stream line:', line.substring(0, 100))
+          } catch {
+            // Ignore parse errors
           }
         }
       })
 
-      proc.stderr.on('data', (data) => {
-        console.error('[HeadlessAgent] stderr:', data.toString())
+      proc.stderr.on('data', () => {
+        // Ignore stderr
       })
 
-      proc.on('close', (code) => {
-        console.log('[HeadlessAgent] Process closed, code:', code)
+      proc.on('close', () => {
         this.currentProc = null
 
         if (buffer.trim()) {
@@ -134,8 +133,8 @@ export class HeadlessAgent {
               lastResult = event
               this.sessionId = event.session_id
             }
-          } catch (err) {
-            console.error('[HeadlessAgent] Failed to parse final buffer')
+          } catch {
+            // Ignore parse errors
           }
         }
 
@@ -150,10 +149,7 @@ export class HeadlessAgent {
         }
       })
 
-      proc.on('error', (err) => {
-        console.error('[HeadlessAgent] Spawn error:', err)
-        reject(err)
-      })
+      proc.on('error', reject)
     })
   }
 
@@ -164,13 +160,16 @@ export class HeadlessAgent {
     clearCurrentTool?: () => void
   ) {
     if (event.type === 'assistant' && event.message) {
-      const message = event.message as { content?: Array<{ type: string; name?: string; input?: Record<string, unknown> }> }
+      const message = event.message as { content?: Array<{ type: string; name?: string; text?: string; input?: Record<string, unknown> }> }
       if (message.content) {
         for (const block of message.content) {
           if (block.type === 'tool_use' && block.name) {
-            console.log('[HeadlessAgent] Tool started:', block.name)
             setCurrentTool?.(block.name)
             callbacks?.onToolStart?.(block.name, block.input)
+          }
+          // Extract text content from assistant messages
+          if (block.type === 'text' && block.text) {
+            callbacks?.onText?.(block.text)
           }
         }
       }
@@ -181,17 +180,9 @@ export class HeadlessAgent {
       if (message.content) {
         for (const block of message.content) {
           if (block.type === 'tool_result') {
-            console.log('[HeadlessAgent] Tool completed')
             clearCurrentTool?.()
           }
         }
-      }
-    }
-
-    if (event.type === 'content_block_delta') {
-      const delta = event.delta as { type?: string; text?: string } | undefined
-      if (delta?.type === 'text_delta' && delta.text) {
-        callbacks?.onText?.(delta.text)
       }
     }
   }

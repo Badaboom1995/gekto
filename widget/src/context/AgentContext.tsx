@@ -45,7 +45,7 @@ async function saveMessage(agentId: string, message: Message) {
 }
 
 // Helper to sync agent status to store
-function syncAgentStatus(agentId: string, status: 'idle' | 'working' | 'done' | 'error') {
+function syncAgentStatus(agentId: string, status: 'idle' | 'working' | 'done' | 'pending' | 'error') {
   const state = useStore.getState()
   if (state.agents[agentId]) {
     state.updateAgent(agentId, { status })
@@ -81,6 +81,8 @@ interface LizardSession {
   permissionRequest: PermissionRequest | null
   queuePosition: number
   lastResponse?: string  // Store last response for task completion
+  lastStatus?: 'done' | 'pending'  // Status extracted from [STATUS:DONE/PENDING] marker
+  streamingText?: string  // Accumulates text chunks as agent explains what it's doing
 }
 
 interface AgentContextValue {
@@ -188,13 +190,16 @@ export function AgentProvider({ children }: AgentProviderProps) {
           case 'state':
             if (lizardId) {
               if (msg.state === 'working') {
-                updateSession(lizardId, { state: 'working', queuePosition: 0 })
+                // Clear streaming text when starting new work
+                updateSession(lizardId, { state: 'working', queuePosition: 0, streamingText: '' })
                 // Sync to store
                 syncAgentStatus(lizardId, 'working')
               } else if (msg.state === 'ready') {
                 updateSession(lizardId, { state: 'ready', currentTool: null, queuePosition: 0 })
-                // Sync to store (agent is done working, back to idle)
-                syncAgentStatus(lizardId, 'idle')
+                // Sync to store - use lastStatus if available, otherwise default to 'pending'
+                const session = sessionsRef.current.get(lizardId)
+                const finalStatus = session?.lastStatus || 'pending'
+                syncAgentStatus(lizardId, finalStatus)
 
                 // If this is a worker lizard transitioning to ready, notify GektoContext
                 // that the task is complete (agent finished all processing)
@@ -257,6 +262,26 @@ export function AgentProvider({ children }: AgentProviderProps) {
                 if (listener) {
                   listener(toolMessage)
                 }
+              }
+            }
+            break
+
+          case 'text':
+            // Streaming text - show latest message (not accumulated)
+            if (lizardId) {
+              // Strip system markers like [AGENT_NAME:...] and [STATUS:...]
+              let cleanText = msg.text
+                .replace(/\[AGENT_NAME:[^\]]+\]\s*/g, '')
+                .replace(/\[STATUS:(DONE|PENDING)\]/gi, '')
+                .trim()
+
+              if (cleanText) {
+                const currentSession = sessionsRef.current.get(lizardId)
+                updateSession(lizardId, { streamingText: cleanText })
+                sessionsRef.current.set(lizardId, {
+                  ...(currentSession ?? DEFAULT_SESSION),
+                  streamingText: cleanText
+                })
               }
             }
             break
@@ -367,6 +392,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
           case 'response':
           case 'error': {
             let text = msg.type === 'error' ? `Error: ${msg.message}` : msg.text
+            let extractedStatus: 'done' | 'pending' | undefined
 
             // Extract agent name if present
             if (lizardId && msg.type === 'response') {
@@ -378,6 +404,13 @@ export function AgentProvider({ children }: AgentProviderProps) {
                 if (nameExtractorRef.current) {
                   nameExtractorRef.current(lizardId, extractedName)
                 }
+              }
+
+              // Extract status marker [STATUS:DONE] or [STATUS:PENDING]
+              const statusMatch = text.match(/\[STATUS:(DONE|PENDING)\]/i)
+              if (statusMatch) {
+                extractedStatus = statusMatch[1].toLowerCase() as 'done' | 'pending'
+                text = text.replace(statusMatch[0], '').trim()
               }
             }
 
@@ -398,20 +431,22 @@ export function AgentProvider({ children }: AgentProviderProps) {
                 listener(newMessage)
               }
 
-              // Store last response for worker lizards (used when state becomes 'ready')
-              if (lizardId.startsWith('worker_')) {
-                updateSession(lizardId, { lastResponse: text })
-                // Also update ref immediately so it's available when 'state: ready' arrives
-                // (the useEffect that syncs sessionsRef runs after render, which is too late)
-                const currentSession = sessionsRef.current.get(lizardId) ?? { ...DEFAULT_SESSION }
-                sessionsRef.current.set(lizardId, { ...currentSession, lastResponse: text })
+              // Store last response and status (used when state becomes 'ready')
+              // Default to 'pending' - agent is waiting for user input
+              // Only 'done' if agent explicitly marks [STATUS:DONE]
+              const statusToStore = extractedStatus || 'pending'
+              // Also store as streamingText so it shows in the task abstract
+              updateSession(lizardId, { lastResponse: text, lastStatus: statusToStore, streamingText: text })
+              // Also update ref immediately so it's available when 'state: ready' arrives
+              // (the useEffect that syncs sessionsRef runs after render, which is too late)
+              const currentSession = sessionsRef.current.get(lizardId) ?? { ...DEFAULT_SESSION }
+              sessionsRef.current.set(lizardId, { ...currentSession, lastResponse: text, lastStatus: statusToStore, streamingText: text })
 
-                // If it's an error, mark task as failed immediately
-                if (msg.type === 'error') {
-                  const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
-                  if (gektoHandler) {
-                    gektoHandler(lizardId, text, true)
-                  }
+              // For worker lizards: if it's an error, mark task as failed immediately
+              if (lizardId.startsWith('worker_') && msg.type === 'error') {
+                const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
+                if (gektoHandler) {
+                  gektoHandler(lizardId, text, true)
                 }
               }
             }

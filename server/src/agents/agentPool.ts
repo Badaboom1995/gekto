@@ -19,7 +19,7 @@ interface LizardSession {
 
 // Per-lizard sessions
 const sessions = new Map<string, LizardSession>()
-console.log('SESSIONS!!!', sessions)
+
 // Summarize tool input for display
 function summarizeInput(input: Record<string, unknown>): string {
   if (input.file_path) return String(input.file_path)
@@ -43,7 +43,16 @@ Your job is ONLY to:
 - Write and edit code using Write and Edit tools
 - Make the requested code changes
 
-After making changes, simply report what you did. The user will handle building, testing, and running the code themselves.`
+After making changes, simply report what you did. The user will handle building, testing, and running the code themselves.
+
+STATUS MARKER - At the END of EVERY response, you MUST include exactly one of these markers:
+- [STATUS:DONE] - Use when the task is complete and you have no questions for the user
+- [STATUS:PENDING] - Use when you need user input, confirmation, clarification, or approval to proceed
+
+Examples:
+- After completing a code change: "I've updated the function. [STATUS:DONE]"
+- When asking a question: "Which approach would you prefer? [STATUS:PENDING]"
+- After answering a simple question: "The file is located at src/utils.ts [STATUS:DONE]"`
 
 // Tools that agents are not allowed to use
 const DISALLOWED_TOOLS = ['Bash', 'Task']
@@ -84,8 +93,6 @@ function safeSend(session: LizardSession, data: object) {
   const ws = session.currentWs
   if (ws && ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(data))
-  } else {
-    console.log('[AgentPool] WebSocket not available, message dropped:', data)
   }
 }
 
@@ -114,6 +121,13 @@ export async function sendMessage(
         lizardId,
         status: 'completed',
         tool,
+      })
+    },
+    onText: (text: string) => {
+      safeSend(session, {
+        type: 'text',
+        lizardId,
+        text,
       })
     },
   }
@@ -192,8 +206,8 @@ export function deleteSession(lizardId: string): void {
 }
 
 export function getWorkingDir(): string {
-  // In development, use test-app as the working directory
-  if (process.env.NODE_ENV !== 'production') {
+  // In dev mode (GEKTO_DEV=1), use test-app as the working directory
+  if (process.env.GEKTO_DEV === '1') {
     return path.resolve(process.cwd(), '../test-app')
   }
   return process.cwd()
@@ -204,7 +218,6 @@ export function attachWebSocket(ws: WebSocket): void {
   for (const session of sessions.values()) {
     session.currentWs = ws
   }
-  console.log(`[AgentPool] Attached WebSocket to ${sessions.size} existing session(s)`)
 }
 
 export interface ActiveSession {
@@ -246,7 +259,6 @@ export function getActiveSessions(): ActiveSession[] {
 export function killSession(lizardId: string): boolean {
   const session = sessions.get(lizardId)
   if (session) {
-    console.log(`[AgentPool] Killing session for lizard: ${lizardId}`)
     const killed = session.agent.kill()
     session.isProcessing = false
     session.queue = []
@@ -257,8 +269,7 @@ export function killSession(lizardId: string): boolean {
 
 export function killAllSessions(): number {
   let count = 0
-  for (const [lizardId, session] of sessions) {
-    console.log(`[AgentPool] Killing session for lizard: ${lizardId}`)
+  for (const [, session] of sessions) {
     if (session.agent.kill()) {
       count++
     }

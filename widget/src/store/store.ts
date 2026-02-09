@@ -40,9 +40,16 @@ export interface Task {
   sessionId?: string
   status: TaskStatus
   planId?: string
+  // Execution fields
+  files?: string[]              // Files this task will modify
+  assignedAgentId?: string      // Agent assigned to this task
+  dependencies?: string[]       // Task IDs that must complete first
+  result?: string               // Completion result
+  error?: string                // Error message if failed
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'review' | 'done' | 'error'
+// pending_testing = agent finished, awaiting user verification
+export type TaskStatus = 'pending' | 'in_progress' | 'pending_testing' | 'completed' | 'failed'
 
 export interface Agent {
   id: string
@@ -51,18 +58,20 @@ export interface Agent {
   status: AgentStatus
 }
 
-export type AgentStatus = 'idle' | 'working' | 'done' | 'error'
+export type AgentStatus = 'idle' | 'working' | 'done' | 'pending' | 'error'
 
 export interface Plan {
   id: string
   name: string
   status: PlanStatus
   taskIds: string[]
+  originalPrompt?: string       // Original user prompt that created this plan
   createdAt: Date
   completedAt?: Date
 }
 
-export type PlanStatus = 'pending' | 'running' | 'done' | 'canceled'
+// Real plans only exist after execution starts
+export type PlanStatus = 'executing' | 'completed' | 'failed' | 'canceled'
 
 // ============ Store State ============
 
@@ -71,6 +80,8 @@ interface GektoState {
   tasks: Record<string, Task>
   agents: Record<string, Agent>
   plans: Record<string, Plan>
+  // UI state (not persisted)
+  isWhiteboardOpen: boolean
 }
 
 interface GektoActions {
@@ -100,6 +111,9 @@ interface GektoActions {
 
   // Bulk
   reset: () => void
+
+  // UI state
+  setWhiteboardOpen: (open: boolean) => void
 }
 
 type GektoStore = GektoState & GektoActions
@@ -117,6 +131,7 @@ const INITIAL_STATE: GektoState = {
   tasks: {},
   agents: {},
   plans: {},
+  isWhiteboardOpen: false,
 }
 
 // ============ Server Storage ============
@@ -278,6 +293,9 @@ export const useStore = create<GektoStore>()(
 
       // Bulk
       reset: () => set(INITIAL_STATE),
+
+      // UI state
+      setWhiteboardOpen: (open) => set({ isWhiteboardOpen: open }),
     }),
     {
       name: 'gekto-store',

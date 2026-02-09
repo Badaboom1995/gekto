@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Tldraw, Editor, createShapeId } from 'tldraw'
-import { TaskShapeUtil } from './TaskShape'
+import { TaskShapeUtil, setOnOpenChat } from './TaskShape'
 import { useAgentShapeSync } from './useAgentShapeSync'
 import { useStore } from '../../store/store'
+import { useAgent } from '../../context/AgentContext'
+import { ChatWindow } from '../ChatWindow'
 
 // Custom shape utils for tldraw
 const customShapeUtils = [TaskShapeUtil]
@@ -22,33 +24,75 @@ export function openWhiteboard() {
 }
 
 export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: WhiteboardCurtainProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const isOpen = useStore((s) => s.isWhiteboardOpen)
+  const setWhiteboardOpen = useStore((s) => s.setWhiteboardOpen)
 
-  // Register the open function in effect
-  useEffect(() => {
-    openWhiteboardFn = () => setIsOpen(true)
-    return () => { openWhiteboardFn = null }
-  }, [])
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
   const editorRef = useRef<Editor | null>(null)
 
+  // Track which agent's chat is open on whiteboard
+  const [whiteboardChatAgentId, setWhiteboardChatAgentId] = useState<string | null>(null)
+  const [chatPosition, setChatPosition] = useState({ x: 0, y: 0 })
+
+  // Register the open function in effect
+  useEffect(() => {
+    openWhiteboardFn = () => setWhiteboardOpen(true)
+    return () => { openWhiteboardFn = null }
+  }, [setWhiteboardOpen])
+
+  // Register callback for opening chat from TaskShape
+  useEffect(() => {
+    setOnOpenChat((agentId: string) => {
+      // Get shape position from tldraw
+      if (editor) {
+        const shapes = editor.getCurrentPageShapes()
+        const shape = shapes.find(s =>
+          (s.type as string) === 'task' &&
+          (s as any).props?.agentId === agentId
+        )
+        if (shape) {
+          // Convert page coords to screen coords
+          const screenPoint = editor.pageToScreen({ x: shape.x, y: shape.y })
+          setChatPosition({
+            x: screenPoint.x + 320, // Right of the task
+            y: screenPoint.y
+          })
+        }
+      }
+      setWhiteboardChatAgentId(agentId)
+    })
+    return () => setOnOpenChat(null)
+  }, [editor])
+
   // Get agents and tasks from store
   const agents = useStore((s) => s.agents)
   const tasks = useStore((s) => s.tasks)
+  const deleteAgent = useStore((s) => s.deleteAgent)
+
+  // Get sessions and workingDir from AgentContext
+  const { sessions, getWorkingDir } = useAgent()
+  const workingDir = getWorkingDir()
 
   // Build agentsWithTasks array for sync hook
   const agentsWithTasks = useMemo(() =>
-    Object.values(agents).map(agent => ({
-      agent,
-      task: tasks[agent.taskId],
-    })),
-    [agents, tasks]
+    Object.values(agents).map(agent => {
+      const session = sessions.get(agent.id)
+      return {
+        agent,
+        task: tasks[agent.taskId],
+        currentTool: session?.currentTool?.tool,
+        streamingText: session?.streamingText,
+        workingDir,
+      }
+    }),
+    [agents, tasks, sessions, workingDir]
   )
 
   // Sync agents to TaskShapes (Zustand → tldraw)
   // Positions managed by tldraw via persistenceKey
-  useAgentShapeSync(editor, agentsWithTasks)
+  // When user deletes shape, agent is removed from store
+  useAgentShapeSync(editor, agentsWithTasks, deleteAgent)
 
   // Setup portal container on mount (preload)
   useEffect(() => {
@@ -76,8 +120,8 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
   }, [])
 
   const handleClose = useCallback(() => {
-    setIsOpen(false)
-  }, [])
+    setWhiteboardOpen(false)
+  }, [setWhiteboardOpen])
 
   const handleAddTask = useCallback(() => {
     if (!editor) return
@@ -283,8 +327,28 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
               Roll up
             </button>
           </div>
+
         </div>,
         portalContainer
+      )}
+
+      {/* Chat overlay - rendered in shadow DOM with high z-index to appear above whiteboard */}
+      {whiteboardChatAgentId && (
+        <div
+          className="fixed"
+          style={{
+            left: chatPosition.x,
+            top: chatPosition.y,
+            zIndex: 100000,
+            pointerEvents: 'auto',
+          }}
+        >
+          <ChatWindow
+            lizardId={whiteboardChatAgentId}
+            title="Agent Chat"
+            onClose={() => setWhiteboardChatAgentId(null)}
+          />
+        </div>
       )}
     </>
   )
