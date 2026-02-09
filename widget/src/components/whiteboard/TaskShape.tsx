@@ -14,6 +14,13 @@ export function setOnOpenChat(callback: ((agentId: string) => void) | null) {
   onOpenChatCallback = callback
 }
 
+// Global callback for viewing diffs - set by WhiteboardCurtain
+let onViewDiffCallback: ((agentId: string) => void) | null = null
+
+export function setOnViewDiff(callback: ((agentId: string) => void) | null) {
+  onViewDiffCallback = callback
+}
+
 // Define the status type for agent activities
 export type TaskStatus = 'READ' | 'WRITE' | 'BASH' | 'GREP' | 'EDIT' | 'done' | 'error' | 'pending' | 'idle'
 
@@ -30,6 +37,7 @@ export type TaskShape = TLBaseShape<
     message?: string         // Bottom zone for errors/results
     agentId?: string         // Link to agent in AgentStore
     workingDir?: string      // Agent's root location
+    fileChangeCount?: number // Number of files changed by this agent
   }
 >
 
@@ -44,6 +52,7 @@ const taskShapeProps = {
   message: T.string.optional(),
   agentId: T.string.optional(),
   workingDir: T.string.optional(),
+  fileChangeCount: T.number.optional(),
 }
 
 const DEFAULT_HEIGHT = 200
@@ -125,15 +134,24 @@ export class TaskShapeUtil extends ShapeUtil<any> {
 
 
   component(shape: TaskShape) {
-    const { w, h, title, abstract, branch, status, message, agentId, workingDir } = shape.props
+    const { w, h, title, abstract, branch, status, message, agentId, workingDir, fileChangeCount } = shape.props
     const statusInfo = STATUS_COLORS[status]
     const isRunning = ['READ', 'WRITE', 'BASH', 'GREP', 'EDIT'].includes(status)
+    const hasFileChanges = (fileChangeCount ?? 0) > 0
 
     const handleTitleClick = (e: React.PointerEvent) => {
       e.stopPropagation()
       e.preventDefault()
       if (agentId && onOpenChatCallback) {
         onOpenChatCallback(agentId)
+      }
+    }
+
+    const handleDiffClick = (e: React.PointerEvent) => {
+      e.stopPropagation()
+      e.preventDefault()
+      if (agentId && onViewDiffCallback) {
+        onViewDiffCallback(agentId)
       }
     }
 
@@ -260,7 +278,7 @@ export class TaskShapeUtil extends ShapeUtil<any> {
               <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{branch}</span>
             </div>
           )}
-
+          
           {/* Summary: Current work status */}
           <div style={{ flex: 1, padding: '8px 12px', overflow: 'auto' }}>
             <textarea
@@ -289,12 +307,13 @@ export class TaskShapeUtil extends ShapeUtil<any> {
             <DynamicBlock status={status} message={message} />
           )}
 
-          {/* Footer: Working directory */}
-          {workingDir && (
+          {/* Footer: Working directory + Diff button */}
+          {(workingDir || hasFileChanges) && (
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'space-between',
                 padding: '6px 12px',
                 borderTop: `1px solid ${BASE_COLORS.border}`,
                 background: '#1a1a1a',
@@ -308,11 +327,46 @@ export class TaskShapeUtil extends ShapeUtil<any> {
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  flex: 1,
                 }}
                 title={workingDir}
               >
-                {workingDir.split('/').slice(-2).join('/')}
+                {workingDir ? workingDir.split('/').slice(-2).join('/') : ''}
               </span>
+              {/* Diff button - shows when there are file changes */}
+              {hasFileChanges && (
+                <div
+                  onPointerDown={handleDiffClick}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    background: '#3b82f620',
+                    color: '#3b82f6',
+                    cursor: 'pointer',
+                    marginLeft: 8,
+                    fontWeight: 500,
+                    fontSize: 10,
+                  }}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 3v18" />
+                    <path d="M3 12h18" />
+                  </svg>
+                  {fileChangeCount} {fileChangeCount === 1 ? 'file' : 'files'}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -30,7 +30,7 @@ const TOOL_TO_STATUS: Record<string, ShapeStatus> = {
 /**
  * Convert Agent + Task → props object (same format as "Add Tasks" button)
  */
-function buildShapeProps(agent: Agent, task: Task | undefined, index: number, currentTool?: string, streamingText?: string, workingDir?: string): Record<string, unknown> {
+function buildShapeProps(agent: Agent, task: Task | undefined, index: number, currentTool?: string, streamingText?: string, workingDir?: string, fileChangeCount?: number): Record<string, unknown> {
   // Map agent status to shape status
   let status: ShapeStatus = 'idle'
   if (agent.status === 'error') status = 'error'
@@ -76,6 +76,9 @@ function buildShapeProps(agent: Agent, task: Task | undefined, index: number, cu
   // Working directory for footer
   if (workingDir) props.workingDir = workingDir
 
+  // File change count for diff button
+  if (fileChangeCount && fileChangeCount > 0) props.fileChangeCount = fileChangeCount
+
   return props
 }
 
@@ -87,6 +90,7 @@ interface AgentWithTask {
   currentTool?: string
   streamingText?: string
   workingDir?: string
+  fileChangeCount?: number
 }
 
 /**
@@ -114,7 +118,7 @@ export function useAgentShapeSync(
 
     // 1. Create shapes for NEW agents (or link to existing shapes from localStorage)
     for (let i = 0; i < agentsWithTasks.length; i++) {
-      const { agent, task, currentTool, streamingText, workingDir } = agentsWithTasks[i]
+      const { agent, task, currentTool, streamingText, workingDir, fileChangeCount } = agentsWithTasks[i]
       if (!agentToShape.has(agent.id)) {
         // Check if a shape with this agentId already exists (from tldraw localStorage)
         const existingShape = editor.getCurrentPageShapes().find(
@@ -134,7 +138,7 @@ export function useAgentShapeSync(
           const y = START_Y + row * (CARD_HEIGHT + GAP)
 
           // Build props from agent/task data (use array index for "Agent X" naming)
-          const props = buildShapeProps(agent, task, i, currentTool, streamingText, workingDir)
+          const props = buildShapeProps(agent, task, i, currentTool, streamingText, workingDir, fileChangeCount)
 
           // Create shape ID (no argument, like Add Tasks button)
           const shapeId = createShapeId()
@@ -160,12 +164,12 @@ export function useAgentShapeSync(
 
     // 2. Update props for EXISTING agents (no position change)
     for (let i = 0; i < agentsWithTasks.length; i++) {
-      const { agent, task, currentTool, streamingText, workingDir } = agentsWithTasks[i]
+      const { agent, task, currentTool, streamingText, workingDir, fileChangeCount } = agentsWithTasks[i]
       const shapeId = agentToShape.get(agent.id)
       if (shapeId) {
         const shape = editor.getShape(shapeId)
         if (shape) {
-          const props = buildShapeProps(agent, task, i, currentTool, streamingText, workingDir)
+          const props = buildShapeProps(agent, task, i, currentTool, streamingText, workingDir, fileChangeCount)
           editor.updateShape({
             id: shapeId,
             type: 'task' as const,

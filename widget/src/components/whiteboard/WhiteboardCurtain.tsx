@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Tldraw, Editor, createShapeId } from 'tldraw'
-import { TaskShapeUtil, setOnOpenChat } from './TaskShape'
+import { TaskShapeUtil, setOnOpenChat, setOnViewDiff } from './TaskShape'
+import { DiffModal } from './DiffModal'
 import { useAgentShapeSync } from './useAgentShapeSync'
 import { useStore } from '../../store/store'
 import { useAgent } from '../../context/AgentContext'
@@ -35,6 +36,9 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
   const [whiteboardChatAgentId, setWhiteboardChatAgentId] = useState<string | null>(null)
   const [chatPosition, setChatPosition] = useState({ x: 0, y: 0 })
 
+  // Track which agent's diff modal is open
+  const [diffAgentId, setDiffAgentId] = useState<string | null>(null)
+
   // Register the open function in effect
   useEffect(() => {
     openWhiteboardFn = () => setWhiteboardOpen(true)
@@ -65,28 +69,38 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
     return () => setOnOpenChat(null)
   }, [editor])
 
+  // Register callback for viewing diffs from TaskShape
+  useEffect(() => {
+    setOnViewDiff((agentId: string) => {
+      setDiffAgentId(agentId)
+    })
+    return () => setOnViewDiff(null)
+  }, [])
+
   // Get agents and tasks from store
   const agents = useStore((s) => s.agents)
   const tasks = useStore((s) => s.tasks)
   const deleteAgent = useStore((s) => s.deleteAgent)
 
-  // Get sessions and workingDir from AgentContext
-  const { sessions, getWorkingDir } = useAgent()
+  // Get sessions, workingDir, and file changes from AgentContext
+  const { sessions, getWorkingDir, getFileChanges } = useAgent()
   const workingDir = getWorkingDir()
 
   // Build agentsWithTasks array for sync hook
   const agentsWithTasks = useMemo(() =>
     Object.values(agents).map(agent => {
       const session = sessions.get(agent.id)
+      const fileChanges = getFileChanges(agent.id)
       return {
         agent,
         task: tasks[agent.taskId],
         currentTool: session?.currentTool?.tool,
         streamingText: session?.streamingText,
         workingDir,
+        fileChangeCount: fileChanges.length,
       }
     }),
-    [agents, tasks, sessions, workingDir]
+    [agents, tasks, sessions, workingDir, getFileChanges]
   )
 
   // Sync agents to TaskShapes (Zustand → tldraw)
@@ -194,7 +208,7 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
 
       return shapeId
     })
-
+    
     // Select all new shapes
     editor.select(...shapeIds)
   }, [editor])
@@ -349,6 +363,15 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
             onClose={() => setWhiteboardChatAgentId(null)}
           />
         </div>
+      )}
+
+      {/* Diff modal - rendered in portal to appear above tldraw */}
+      {diffAgentId && portalContainer && createPortal(
+        <DiffModal
+          fileChanges={getFileChanges(diffAgentId)}
+          onClose={() => setDiffAgentId(null)}
+        />,
+        portalContainer
       )}
     </>
   )

@@ -1,6 +1,6 @@
 import path from 'path'
 import { WebSocket } from 'ws'
-import { HeadlessAgent, type StreamCallbacks, type AgentResponse } from './HeadlessAgent.js'
+import { HeadlessAgent, type StreamCallbacks, type AgentResponse, type FileChange } from './HeadlessAgent.js'
 
 interface QueuedMessage {
   message: string
@@ -128,6 +128,13 @@ export async function sendMessage(
         type: 'text',
         lizardId,
         text,
+      })
+    },
+    onFileChange: (change: FileChange) => {
+      safeSend(session, {
+        type: 'file_change',
+        lizardId,
+        change,
       })
     },
   }

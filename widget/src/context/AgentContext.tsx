@@ -59,6 +59,14 @@ interface ToolStatus {
   fullInput?: Record<string, unknown>
 }
 
+// File change from agent Write/Edit operations
+export interface FileChange {
+  tool: 'Write' | 'Edit'
+  filePath: string
+  before: string | null
+  after: string
+}
+
 interface PermissionRequest {
   tool: string
   input?: string
@@ -83,6 +91,7 @@ interface LizardSession {
   lastResponse?: string  // Store last response for task completion
   lastStatus?: 'done' | 'pending'  // Status extracted from [STATUS:DONE/PENDING] marker
   streamingText?: string  // Accumulates text chunks as agent explains what it's doing
+  fileChanges: FileChange[]  // File changes from Write/Edit operations
 }
 
 interface AgentContextValue {
@@ -99,6 +108,7 @@ interface AgentContextValue {
   getPermissionRequest: (lizardId: string) => PermissionRequest | null
   getQueuePosition: (lizardId: string) => number
   getWorkingDir: () => string
+  getFileChanges: (lizardId: string) => FileChange[]
 
   // WebSocket access for GektoContext
   getWebSocket: () => WebSocket | null
@@ -135,6 +145,7 @@ const DEFAULT_SESSION: LizardSession = {
   currentTool: null,
   permissionRequest: null,
   queuePosition: 0,
+  fileChanges: [],
 }
 
 export function AgentProvider({ children }: AgentProviderProps) {
@@ -283,6 +294,43 @@ export function AgentProvider({ children }: AgentProviderProps) {
                   streamingText: cleanText
                 })
               }
+            }
+            break
+
+          case 'file_change':
+            // File changed by Write/Edit tool
+            // Keep only one entry per file: original "before" + latest "after"
+            if (lizardId && msg.change) {
+              const change = msg.change as FileChange
+              setSessions(prev => {
+                const next = new Map(prev)
+                const current = next.get(lizardId) ?? { ...DEFAULT_SESSION }
+
+                // Check if we already have a change for this file
+                const existingIndex = current.fileChanges.findIndex(
+                  fc => fc.filePath === change.filePath
+                )
+
+                let updatedChanges: FileChange[]
+                if (existingIndex >= 0) {
+                  // Update existing entry: keep original "before", use new "after"
+                  updatedChanges = [...current.fileChanges]
+                  updatedChanges[existingIndex] = {
+                    ...updatedChanges[existingIndex],
+                    after: change.after,
+                    tool: change.tool, // Update tool to latest operation
+                  }
+                } else {
+                  // New file - add to list
+                  updatedChanges = [...current.fileChanges, change]
+                }
+
+                next.set(lizardId, {
+                  ...current,
+                  fileChanges: updatedChanges,
+                })
+                return next
+              })
             }
             break
 
@@ -524,6 +572,10 @@ export function AgentProvider({ children }: AgentProviderProps) {
     return sessions.get(lizardId)?.queuePosition ?? 0
   }, [sessions])
 
+  const getFileChanges = useCallback((lizardId: string): FileChange[] => {
+    return sessions.get(lizardId)?.fileChanges ?? []
+  }, [sessions])
+
   const getWorkingDirFn = useCallback((): string => {
     return workingDir
   }, [workingDir])
@@ -567,6 +619,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
     getCurrentTool,
     getPermissionRequest,
     getQueuePosition,
+    getFileChanges,
     getWorkingDir: getWorkingDirFn,
     getWebSocket: getWebSocketFn,
     activeAgents,
