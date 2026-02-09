@@ -1,4 +1,56 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { useStore, type Message, type ToolMessage } from '../store/store'
+
+// Helper to save message - to store if agent has task, otherwise to REST API
+async function saveMessage(agentId: string, message: Message) {
+  const state = useStore.getState()
+  const agent = state.agents[agentId]
+
+  if (agent?.taskId) {
+    // Agent has task - save to store (persists via Zustand middleware)
+    state.addMessageToTask(agent.taskId, message)
+  } else {
+    // No task - save to REST API
+    // First fetch existing messages, then append
+    try {
+      const res = await fetch(`/__gekto/api/chats/${agentId}`)
+      const existing = res.ok ? await res.json() : []
+      const updated = [
+        ...existing,
+        {
+          id: message.id,
+          text: message.text,
+          sender: message.sender,
+          timestamp: message.timestamp.toISOString(),
+          isTerminal: message.isTerminal,
+          toolUse: message.toolUse ? {
+            tool: message.toolUse.tool,
+            input: message.toolUse.input,
+            fullInput: message.toolUse.fullInput,
+            status: message.toolUse.status,
+            startTime: message.toolUse.startTime.toISOString(),
+            endTime: message.toolUse.endTime?.toISOString(),
+          } : undefined,
+        },
+      ]
+      await fetch(`/__gekto/api/chats/${agentId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      })
+    } catch (err) {
+      console.error('[Agent] Failed to save message to REST API:', err)
+    }
+  }
+}
+
+// Helper to sync agent status to store
+function syncAgentStatus(agentId: string, status: 'idle' | 'working' | 'done' | 'error') {
+  const state = useStore.getState()
+  if (state.agents[agentId]) {
+    state.updateAgent(agentId, { status })
+  }
+}
 
 interface ToolStatus {
   tool: string
@@ -21,28 +73,6 @@ interface ActiveAgent {
   isProcessing: boolean
   isRunning: boolean
   queueLength: number
-}
-
-interface ToolMessage {
-  tool: string
-  input?: string
-  fullInput?: Record<string, unknown>
-  status: 'running' | 'completed'
-  startTime: Date
-  endTime?: Date
-}
-
-interface Message {
-  id: string
-  text: string
-  sender: 'user' | 'bot' | 'system'
-  timestamp: Date
-  isTerminal?: boolean
-  // Tool use data (if this is a tool message)
-  toolUse?: ToolMessage
-  // System message type for special UI
-  systemType?: 'mode' | 'status' | 'info'
-  systemData?: Record<string, unknown>
 }
 
 interface LizardSession {
@@ -98,55 +128,6 @@ interface AgentProviderProps {
   children: ReactNode
 }
 
-// Helper to save a message to chat history
-async function saveMessageToHistory(lizardId: string, message: Message) {
-  try {
-    // Load existing messages
-    const res = await fetch(`/__gekto/api/chats/${lizardId}`)
-    const existing: Array<{
-      id: string
-      text: string
-      sender: string
-      timestamp: string
-      isTerminal?: boolean
-      toolUse?: {
-        tool: string
-        input?: string
-        fullInput?: Record<string, unknown>
-        status: 'running' | 'completed'
-        startTime: string
-        endTime?: string
-      }
-    }> = await res.json() || []
-
-    // Add new message
-    existing.push({
-      id: message.id,
-      text: message.text,
-      sender: message.sender,
-      timestamp: message.timestamp.toISOString(),
-      isTerminal: message.isTerminal,
-      toolUse: message.toolUse ? {
-        tool: message.toolUse.tool,
-        input: message.toolUse.input,
-        fullInput: message.toolUse.fullInput,
-        status: message.toolUse.status,
-        startTime: message.toolUse.startTime.toISOString(),
-        endTime: message.toolUse.endTime?.toISOString(),
-      } : undefined,
-    })
-
-    // Save back
-    await fetch(`/__gekto/api/chats/${lizardId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(existing),
-    })
-  } catch (err) {
-    console.error('[Agent] Failed to save message to history:', err)
-  }
-}
-
 const DEFAULT_SESSION: LizardSession = {
   state: 'ready',
   currentTool: null,
@@ -155,7 +136,7 @@ const DEFAULT_SESSION: LizardSession = {
 }
 
 export function AgentProvider({ children }: AgentProviderProps) {
-  // Per-lizard sessions
+  // Per-lizard sessions (transient state only: currentTool, permissionRequest, queuePosition)
   const [sessions, setSessions] = useState<Map<string, LizardSession>>(() => new Map())
   const [workingDir, setWorkingDir] = useState('')
   const [activeAgents, setActiveAgents] = useState<ActiveAgent[]>([])
@@ -205,17 +186,19 @@ export function AgentProvider({ children }: AgentProviderProps) {
 
         switch (msg.type) {
           case 'state':
-            
             if (lizardId) {
               if (msg.state === 'working') {
                 updateSession(lizardId, { state: 'working', queuePosition: 0 })
+                // Sync to store
+                syncAgentStatus(lizardId, 'working')
               } else if (msg.state === 'ready') {
                 updateSession(lizardId, { state: 'ready', currentTool: null, queuePosition: 0 })
+                // Sync to store (agent is done working, back to idle)
+                syncAgentStatus(lizardId, 'idle')
 
                 // If this is a worker lizard transitioning to ready, notify GektoContext
                 // that the task is complete (agent finished all processing)
                 if (lizardId.startsWith('worker_')) {
-                 
                   const session = sessionsRef.current.get(lizardId)
                   const lastResponse = session?.lastResponse || ''
                   const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
@@ -225,6 +208,9 @@ export function AgentProvider({ children }: AgentProviderProps) {
                     console.warn('[Agent] Cannot notify: gektoHandler=', !!gektoHandler, 'lastResponse=', !!lastResponse)
                   }
                 }
+              } else if (msg.state === 'error') {
+                updateSession(lizardId, { state: 'error' })
+                syncAgentStatus(lizardId, 'error')
               }
             }
             break
@@ -264,13 +250,12 @@ export function AgentProvider({ children }: AgentProviderProps) {
                     startTime: new Date(),
                   },
                 }
-                // Notify listener if chat is open
+                // Save to store (persists to task.chatHistory)
+                saveMessage(lizardId, toolMessage)
+                // Also notify listener if chat is open (for immediate UI update)
                 const listener = messageListenersRef.current.get(lizardId)
                 if (listener) {
                   listener(toolMessage)
-                } else {
-                  // Save directly if chat is closed
-                  saveMessageToHistory(lizardId, toolMessage)
                 }
               }
             }
@@ -403,14 +388,14 @@ export function AgentProvider({ children }: AgentProviderProps) {
               timestamp: new Date(),
             }
 
-            // Notify listener if chat is open
+            // Save to store and notify listener
             if (lizardId) {
+              // Save to store (persists to task.chatHistory)
+              saveMessage(lizardId, newMessage)
+              // Also notify listener if chat is open (for immediate UI update)
               const listener = messageListenersRef.current.get(lizardId)
               if (listener) {
                 listener(newMessage)
-              } else {
-                // Chat is closed - save directly to history
-                saveMessageToHistory(lizardId, newMessage)
               }
 
               // Store last response for worker lizards (used when state becomes 'ready')
