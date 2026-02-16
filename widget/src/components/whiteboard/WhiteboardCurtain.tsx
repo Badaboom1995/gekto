@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Tldraw, Editor, DefaultToolbar, TldrawUiMenuItem, useTools, useIsToolSelected } from 'tldraw'
-import { TaskShapeUtil, setOnOpenChat, setOnViewDiff, setOnTitleChange } from './TaskShape'
+import { Tldraw, Editor, DefaultToolbar, TldrawUiMenuItem, useTools, useIsToolSelected, createShapeId } from 'tldraw'
+import { TaskShapeUtil, setOnOpenChat, setOnViewDiff, setOnTitleChange, setOnAccept } from './TaskShape'
+import { IframeShapeUtil } from './IframeShape'
 import { DiffModal } from './DiffModal'
 import { useAgentShapeSync } from './useAgentShapeSync'
 import { useStore } from '../../store/store'
@@ -9,10 +10,10 @@ import { useAgent } from '../../context/AgentContext'
 import { ChatWindow } from '../ChatWindow'
 
 // Custom shape utils for tldraw
-const customShapeUtils = [TaskShapeUtil]
+const customShapeUtils = [TaskShapeUtil, IframeShapeUtil]
 
 // Custom toolbar with only: select, hand, draw, eraser, rectangle, and Add Task
-function CustomToolbar({ onAddTask }: { onAddTask: () => void }) {
+function CustomToolbar({ onAddTask, onAddIframe }: { onAddTask: () => void; onAddIframe: () => void }) {
   const tools = useTools()
   const isSelectSelected = useIsToolSelected(tools['select'])
   const isHandSelected = useIsToolSelected(tools['hand'])
@@ -37,6 +38,18 @@ function CustomToolbar({ onAddTask }: { onAddTask: () => void }) {
           <rect x="3" y="3" width="18" height="18" rx="2" />
           <path d="M12 8v8" />
           <path d="M8 12h8" />
+        </svg>
+      </button>
+      <button
+        onClick={onAddIframe}
+        className="tlui-button tlui-button__tool"
+        title="Add Iframe"
+        style={{ color: 'inherit' }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
         </svg>
       </button>
     </DefaultToolbar>
@@ -70,6 +83,16 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
 
   // Track which agent's diff modal is open
   const [diffAgentId, setDiffAgentId] = useState<string | null>(null)
+
+  // Get sessions, workingDir, and file changes from AgentContext
+  const { sessions, getWorkingDir, getFileChanges, revertFiles, acceptAgent } = useAgent()
+  const workingDir = getWorkingDir()
+
+  // Get agents and tasks from store
+  const agents = useStore((s) => s.agents)
+  const tasks = useStore((s) => s.tasks)
+  const deleteAgent = useStore((s) => s.deleteAgent)
+  const updateTask = useStore((s) => s.updateTask)
 
   // Register the open function in effect
   useEffect(() => {
@@ -109,11 +132,13 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
     return () => setOnViewDiff(null)
   }, [])
 
-  // Get agents and tasks from store
-  const agents = useStore((s) => s.agents)
-  const tasks = useStore((s) => s.tasks)
-  const deleteAgent = useStore((s) => s.deleteAgent)
-  const updateTask = useStore((s) => s.updateTask)
+  // Register callback for accepting agent work from TaskShape
+  useEffect(() => {
+    setOnAccept((agentId: string) => {
+      acceptAgent(agentId)
+    })
+    return () => setOnAccept(null)
+  }, [acceptAgent])
 
   // Register callback for title changes from TaskShape
   useEffect(() => {
@@ -126,10 +151,6 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
     })
     return () => setOnTitleChange(null)
   }, [agents, updateTask])
-
-  // Get sessions, workingDir, and file changes from AgentContext
-  const { sessions, getWorkingDir, getFileChanges } = useAgent()
-  const workingDir = getWorkingDir()
 
   // Build agentsWithTasks array for sync hook
   const agentsWithTasks = useMemo(() =>
@@ -213,6 +234,25 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
     // Shape will be created automatically by useAgentShapeSync
   }, [editor, agents, createTask, createAgent])
 
+  const handleAddIframe = useCallback(() => {
+    if (!editor) return
+
+    const viewportCenter = editor.getViewportScreenCenter()
+    const pageCenter = editor.screenToPage(viewportCenter)
+
+    editor.createShape({
+      id: createShapeId(),
+      type: 'iframe' as const,
+      x: pageCenter.x - 400,
+      y: pageCenter.y - 300,
+      props: {
+        w: 800,
+        h: 600,
+        url: 'https://claude.ai',
+      },
+    } as any)
+  }, [editor])
+
   return (
     <>
       {/* Tldraw rendered outside shadow DOM via portal */}
@@ -240,7 +280,7 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
               newEditor.user.updateUserPreferences({ colorScheme: 'dark' })
             }}
             components={{
-              Toolbar: () => <CustomToolbar onAddTask={handleAddTask} />,
+              Toolbar: () => <CustomToolbar onAddTask={handleAddTask} onAddIframe={handleAddIframe} />,
               ActionsMenu: null,
               HelpMenu: null,
               NavigationPanel: null,
@@ -279,6 +319,18 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
         <DiffModal
           fileChanges={getFileChanges(diffAgentId)}
           onClose={() => setDiffAgentId(null)}
+          onRevertFile={(filePath) => {
+            revertFiles(diffAgentId, [filePath])
+          }}
+          onRevertAll={() => {
+            const changes = getFileChanges(diffAgentId)
+            revertFiles(diffAgentId, changes.map(fc => fc.filePath))
+            setDiffAgentId(null)
+          }}
+          onAcceptAll={() => {
+            acceptAgent(diffAgentId)
+            setDiffAgentId(null)
+          }}
         />,
         portalContainer
       )}

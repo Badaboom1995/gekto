@@ -1,6 +1,7 @@
 export { WhiteboardCurtain, whiteboardEditor, openWhiteboard } from './WhiteboardCurtain'
 export { SimpleWhiteboard } from './SimpleWhiteboard'
 export { TaskShapeUtil, type TaskShape, type TaskStatus } from './TaskShape'
+export { IframeShapeUtil, type IframeShape } from './IframeShape'
 export { useAgentShapeSync } from './useAgentShapeSync'
 export { createShapeId } from 'tldraw'
 export { default } from './WhiteboardCurtain'

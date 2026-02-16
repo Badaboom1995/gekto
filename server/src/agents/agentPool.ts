@@ -1,4 +1,6 @@
 import path from 'path'
+import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
+import { dirname } from 'path'
 import { WebSocket } from 'ws'
 import { HeadlessAgent, type StreamCallbacks, type AgentResponse, type FileChange } from './HeadlessAgent.js'
 
@@ -272,6 +274,50 @@ export function killSession(lizardId: string): boolean {
     return killed
   }
   return false
+}
+
+// Revert files to their pre-agent state using the before content from FileChange objects
+export function revertFiles(
+  filePaths: string[],
+  fileChanges: FileChange[]
+): { reverted: string[], failed: string[] } {
+  const reverted: string[] = []
+  const failed: string[] = []
+  const workingDir = getWorkingDir()
+
+  for (const filePath of filePaths) {
+    const change = fileChanges.find(fc => fc.filePath === filePath)
+    if (!change) {
+      failed.push(filePath)
+      continue
+    }
+
+    try {
+      const fullPath = filePath.startsWith('/')
+        ? filePath
+        : path.resolve(workingDir, filePath)
+
+      if (change.before === null) {
+        // File was newly created by agent — delete it
+        if (existsSync(fullPath)) {
+          unlinkSync(fullPath)
+        }
+      } else {
+        // File existed before — restore original content
+        const dir = dirname(fullPath)
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true })
+        }
+        writeFileSync(fullPath, change.before, 'utf-8')
+      }
+      reverted.push(filePath)
+    } catch (err) {
+      console.error(`[AgentPool] Failed to revert ${filePath}:`, err)
+      failed.push(filePath)
+    }
+  }
+
+  return { reverted, failed }
 }
 
 export function killAllSessions(): number {

@@ -109,6 +109,8 @@ interface AgentContextValue {
   getQueuePosition: (lizardId: string) => number
   getWorkingDir: () => string
   getFileChanges: (lizardId: string) => FileChange[]
+  revertFiles: (lizardId: string, filePaths: string[]) => void
+  acceptAgent: (lizardId: string) => void
 
   // WebSocket access for GektoContext
   getWebSocket: () => WebSocket | null
@@ -328,6 +330,22 @@ export function AgentProvider({ children }: AgentProviderProps) {
                 next.set(lizardId, {
                   ...current,
                   fileChanges: updatedChanges,
+                })
+                return next
+              })
+            }
+            break
+
+          case 'files_reverted':
+            // Remove reverted files from the session's fileChanges list
+            if (lizardId && msg.reverted) {
+              const revertedSet = new Set(msg.reverted as string[])
+              setSessions(prev => {
+                const next = new Map(prev)
+                const current = next.get(lizardId) ?? { ...DEFAULT_SESSION }
+                next.set(lizardId, {
+                  ...current,
+                  fileChanges: current.fileChanges.filter(fc => !revertedSet.has(fc.filePath)),
                 })
                 return next
               })
@@ -576,6 +594,37 @@ export function AgentProvider({ children }: AgentProviderProps) {
     return sessions.get(lizardId)?.fileChanges ?? []
   }, [sessions])
 
+  const revertFiles = useCallback((lizardId: string, filePaths: string[]) => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return
+    const session = sessionsRef.current.get(lizardId)
+    if (!session) return
+    // Send the relevant FileChange objects so server has the `before` content
+    const relevantChanges = session.fileChanges.filter(fc => filePaths.includes(fc.filePath))
+    wsRef.current.send(JSON.stringify({
+      type: 'revert_files',
+      lizardId,
+      filePaths,
+      fileChanges: relevantChanges,
+    }))
+  }, [])
+
+  const acceptAgent = useCallback((lizardId: string) => {
+    const state = useStore.getState()
+    const agent = state.agents[lizardId]
+    if (agent?.taskId) {
+      // Mark task as completed (preserves it for history/statistics)
+      state.updateTask(agent.taskId, { status: 'completed' })
+    }
+    // Remove agent from store (removes from canvas via useAgentShapeSync)
+    state.deleteAgent(lizardId)
+    // Clean up transient session
+    setSessions(prev => {
+      const next = new Map(prev)
+      next.delete(lizardId)
+      return next
+    })
+  }, [])
+
   const getWorkingDirFn = useCallback((): string => {
     return workingDir
   }, [workingDir])
@@ -620,6 +669,8 @@ export function AgentProvider({ children }: AgentProviderProps) {
     getPermissionRequest,
     getQueuePosition,
     getFileChanges,
+    revertFiles,
+    acceptAgent,
     getWorkingDir: getWorkingDirFn,
     getWebSocket: getWebSocketFn,
     activeAgents,

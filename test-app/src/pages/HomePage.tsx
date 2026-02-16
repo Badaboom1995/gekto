@@ -63,6 +63,42 @@ const stats = [
   { value: '15', label: 'Years Experience' }
 ]
 
+interface DealProduct {
+  id: number
+  name: string
+  originalPrice: number
+  salePrice: number
+  discountPercent: number
+  endsIn: string
+}
+
+const dealsOfTheDay: DealProduct[] = [
+  {
+    id: 1,
+    name: 'Vintage Keyboard',
+    originalPrice: 149.00,
+    salePrice: 111.75,
+    discountPercent: 25,
+    endsIn: '23:59:59'
+  },
+  {
+    id: 2,
+    name: 'Retro Monitor',
+    originalPrice: 299.00,
+    salePrice: 209.30,
+    discountPercent: 30,
+    endsIn: '23:59:59'
+  },
+  {
+    id: 3,
+    name: 'Classic Mouse',
+    originalPrice: 79.00,
+    salePrice: 63.20,
+    discountPercent: 20,
+    endsIn: '23:59:59'
+  }
+]
+
 const recommendedItems: RecommendationItem[] = [
   {
     id: 1,
@@ -314,6 +350,33 @@ function HomePage() {
                   <span className="featured-price">${product.price.toFixed(2)}</span>
                   <Link to="/shop" className="btn btn-primary">View Details</Link>
                 </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Deals of the Day Section */}
+      <section className="home-deals">
+        <div className="section-header">
+          <h2 className="section-title">Deals of the Day</h2>
+          <p className="section-subtitle">Limited time offers on vintage treasures</p>
+        </div>
+        <div className="deals-grid">
+          {dealsOfTheDay.map((deal) => (
+            <div key={deal.id} className="deal-card">
+              <span className="deal-discount-badge">-{deal.discountPercent}% OFF</span>
+              <div className="deal-content">
+                <h3 className="deal-name">{deal.name}</h3>
+                <div className="deal-pricing">
+                  <span className="deal-original-price">${deal.originalPrice.toFixed(2)}</span>
+                  <span className="deal-sale-price">${deal.salePrice.toFixed(2)}</span>
+                </div>
+                <div className="deal-timer">
+                  <span className="deal-timer-icon">⏱️</span>
+                  <span className="deal-timer-text">Ends in {deal.endsIn}</span>
+                </div>
+                <Link to="/shop" className="btn btn-primary deal-btn">Grab Deal</Link>
               </div>
             </div>
           ))}

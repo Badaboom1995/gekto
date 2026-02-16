@@ -29,6 +29,13 @@ export function setOnTitleChange(callback: ((agentId: string, newTitle: string) 
   onTitleChangeCallback = callback
 }
 
+// Global callback for accepting (completing) an agent's work - set by WhiteboardCurtain
+let onAcceptCallback: ((agentId: string) => void) | null = null
+
+export function setOnAccept(callback: ((agentId: string) => void) | null) {
+  onAcceptCallback = callback
+}
+
 // Define the status type for agent activities
 export type TaskStatus = 'READ' | 'WRITE' | 'BASH' | 'GREP' | 'EDIT' | 'done' | 'error' | 'pending' | 'idle'
 
@@ -274,6 +281,14 @@ export class TaskShapeUtil extends ShapeUtil<any> {
       }
     }
 
+    const handleAcceptClick = (e: React.PointerEvent) => {
+      e.stopPropagation()
+      e.preventDefault()
+      if (agentId && onAcceptCallback) {
+        onAcceptCallback(agentId)
+      }
+    }
+
     return (
       <HTMLContainer
         style={{
@@ -437,36 +452,58 @@ export class TaskShapeUtil extends ShapeUtil<any> {
               </span>
               {/* Diff button - shows when there are file changes */}
               {hasFileChanges && (
-                <div
-                  onPointerDown={handleDiffClick}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '3px 8px',
-                    borderRadius: 4,
-                    background: '#3b82f620',
-                    color: '#3b82f6',
-                    cursor: 'pointer',
-                    marginLeft: 8,
-                    fontWeight: 500,
-                    fontSize: 10,
-                  }}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+                  <div
+                    onPointerDown={handleDiffClick}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      background: '#3b82f620',
+                      color: '#3b82f6',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      fontSize: 10,
+                    }}
                   >
-                    <path d="M12 3v18" />
-                    <path d="M3 12h18" />
-                  </svg>
-                  {fileChangeCount} {fileChangeCount === 1 ? 'file' : 'files'}
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 3v18" />
+                      <path d="M3 12h18" />
+                    </svg>
+                    {fileChangeCount} {fileChangeCount === 1 ? 'file' : 'files'}
+                  </div>
+                  {/* Accept button */}
+                  <div
+                    onPointerDown={handleAcceptClick}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 3,
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      background: '#22c55e20',
+                      color: '#22c55e',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      fontSize: 10,
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    Accept
+                  </div>
                 </div>
               )}
             </div>

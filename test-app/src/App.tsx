@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import './App.css'
+import { AnnouncementBanner } from './components/AnnouncementBanner'
 import AboutPage from './pages/AboutPage'
 import BasketPage from './pages/BasketPage'
 import BlogPage from './pages/BlogPage'
@@ -103,6 +104,7 @@ function Footer() {
 function App() {
   return (
     <div className="app">
+      <AnnouncementBanner />
       <Header />
       <Routes>
         <Route path="/" element={<HomePage />} />

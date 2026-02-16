@@ -3,6 +3,66 @@
   background: #0a0a0a;
 }
 
+/* Announcement Banner */
+.announcement-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, #F59E0B 0%, #FBBF24 50%, #F59E0B 100%);
+  padding: 10px 48px 10px 24px;
+  position: relative;
+  width: 100%;
+}
+
+.announcement-text {
+  color: #1a1a0a;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+
+.announcement-close {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.15);
+  border: none;
+  color: #1a1a0a;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.announcement-close:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.announcement-close:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+@media (max-width: 480px) {
+  .announcement-banner {
+    padding: 8px 40px 8px 16px;
+  }
+
+  .announcement-text {
+    font-size: 12px;
+  }
+
+  .announcement-close {
+    right: 8px;
+    font-size: 14px;
+    padding: 3px 6px;
+  }
+}
+
 /* Header */
 .header {
   background: rgba(38, 38, 38, 0.95);

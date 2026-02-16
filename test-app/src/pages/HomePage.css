@@ -571,6 +571,121 @@
   color: #fff;
 }
 
+/* Deals of the Day Section */
+.home-deals {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 80px 24px;
+  border-top: 1px solid #222;
+}
+
+.deals-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.deal-card {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 16px;
+  padding: 32px;
+  position: relative;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.deal-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #ff6b6b, #ffd93d);
+}
+
+.deal-card:hover {
+  transform: translateY(-8px);
+  border-color: #333;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+.deal-discount-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: linear-gradient(135deg, #ff4444, #ff6b6b);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(255, 68, 68, 0.4);
+}
+
+.deal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.deal-name {
+  font-size: 22px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+}
+
+.deal-pricing {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.deal-original-price {
+  font-size: 16px;
+  color: #666;
+  text-decoration: line-through;
+}
+
+.deal-sale-price {
+  font-size: 32px;
+  font-weight: 700;
+  color: #22c55e;
+}
+
+.deal-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.deal-timer-icon {
+  font-size: 18px;
+}
+
+.deal-timer-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ff6b6b;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 1px;
+}
+
+.deal-btn {
+  margin-top: 8px;
+  width: 100%;
+  text-align: center;
+}
+
 /* Features Section */
 .home-features {
   display: grid;
@@ -882,6 +997,10 @@
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .deals-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .testimonials-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -940,6 +1059,10 @@
   }
 
   .featured-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .deals-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1054,6 +1177,7 @@
 
   .home-categories,
   .home-featured,
+  .home-deals,
   .home-features,
   .home-testimonials {
     padding: 60px 16px;

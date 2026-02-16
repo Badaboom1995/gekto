@@ -2,7 +2,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 import type { Server } from 'http'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
-import { sendMessage, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket } from './agentPool.js'
+import { sendMessage, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles } from './agentPool.js'
 import { processWithTools, type ExecutionPlan, type PlanCallbacks } from './gektoTools.js'
 import { initGekto, sendToGekto, getGektoState, abortGekto, setStateCallback, type GektoCallbacks, type GektoMode } from './gektoPersistent.js'
 
@@ -267,6 +267,17 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             resetSession(lizardId)
             ws.send(JSON.stringify({ type: 'state', lizardId, state: 'ready' }))
             break
+
+          case 'revert_files': {
+            const revertResult = revertFiles(msg.filePaths || [], msg.fileChanges || [])
+            ws.send(JSON.stringify({
+              type: 'files_reverted',
+              lizardId,
+              reverted: revertResult.reverted,
+              failed: revertResult.failed,
+            }))
+            break
+          }
 
           case 'kill':
             // For master, abort the persistent Gekto process instead of killing session

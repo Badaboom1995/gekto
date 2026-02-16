@@ -5,9 +5,12 @@ import type { FileChange } from '../../context/AgentContext'
 interface DiffModalProps {
   fileChanges: FileChange[]
   onClose: () => void
+  onRevertFile?: (filePath: string) => void
+  onRevertAll?: () => void
+  onAcceptAll?: () => void
 }
 
-export function DiffModal({ fileChanges, onClose }: DiffModalProps) {
+export function DiffModal({ fileChanges, onClose, onRevertFile, onRevertAll, onAcceptAll }: DiffModalProps) {
   // Track selected file index
   const [selectedIndex, setSelectedIndex] = useState(0)
   const selectedChange = fileChanges[selectedIndex]
@@ -132,23 +135,72 @@ export function DiffModal({ fileChanges, onClose }: DiffModalProps) {
               {fileChanges.length} file{fileChanges.length > 1 ? 's' : ''} changed
             </span>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#71717a',
-              cursor: 'pointer',
-              padding: 4,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {onAcceptAll && (
+              <button
+                onClick={onAcceptAll}
+                style={{
+                  background: '#22c55e20',
+                  border: '1px solid #22c55e40',
+                  color: '#22c55e',
+                  cursor: 'pointer',
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Accept All
+              </button>
+            )}
+            {onRevertAll && fileChanges.length > 0 && (
+              <button
+                onClick={onRevertAll}
+                style={{
+                  background: '#ef444420',
+                  border: '1px solid #ef444440',
+                  color: '#ef4444',
+                  cursor: 'pointer',
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="1 4 1 10 7 10" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                </svg>
+                Revert All
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#71717a',
+                cursor: 'pointer',
+                padding: 4,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Main content: sidebar + diff viewer */}
@@ -163,75 +215,116 @@ export function DiffModal({ fileChanges, onClose }: DiffModalProps) {
             }}
           >
             {fileChanges.map((change, index) => (
-              <button
+              <div
                 key={`${change.filePath}-${index}`}
-                onClick={() => setSelectedIndex(index)}
                 style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: 'none',
-                  background: selectedIndex === index ? '#3b82f6' : 'transparent',
-                  color: selectedIndex === index ? '#fff' : '#a1a1aa',
-                  textAlign: 'left',
-                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8,
                   borderBottom: '1px solid #27272a',
+                  background: selectedIndex === index ? '#3b82f6' : 'transparent',
                 }}
               >
-                {/* File icon */}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  style={{ flexShrink: 0 }}
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {getFileName(change.filePath)}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      opacity: 0.7,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {getShortPath(change.filePath)}
-                  </div>
-                </div>
-                {/* Tool badge */}
-                <span
+                <button
+                  onClick={() => setSelectedIndex(index)}
                   style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    background: change.tool === 'Write' ? '#22c55e20' : '#3b82f620',
-                    color: change.tool === 'Write' ? '#22c55e' : '#3b82f6',
-                    flexShrink: 0,
+                    flex: 1,
+                    padding: '10px 12px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: selectedIndex === index ? '#fff' : '#a1a1aa',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    minWidth: 0,
                   }}
                 >
-                  {change.tool === 'Write' && !change.before ? 'NEW' : change.tool.toUpperCase()}
-                </span>
-              </button>
+                  {/* File icon */}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    style={{ flexShrink: 0 }}
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 500,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {getFileName(change.filePath)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        opacity: 0.7,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {getShortPath(change.filePath)}
+                    </div>
+                  </div>
+                  {/* Tool badge */}
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      background: change.tool === 'Write' ? '#22c55e20' : '#3b82f620',
+                      color: change.tool === 'Write' ? '#22c55e' : '#3b82f6',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {change.tool === 'Write' && !change.before ? 'NEW' : change.tool.toUpperCase()}
+                  </span>
+                </button>
+                {/* Revert button per file */}
+                {onRevertFile && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onRevertFile(change.filePath)
+                      // Adjust selected index if needed
+                      if (selectedIndex >= fileChanges.length - 1 && selectedIndex > 0) {
+                        setSelectedIndex(selectedIndex - 1)
+                      }
+                    }}
+                    title={`Revert ${getFileName(change.filePath)}`}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: selectedIndex === index ? '#fca5a5' : '#71717a',
+                      cursor: 'pointer',
+                      padding: '4px 8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                    onMouseEnter={(e) => { (e.target as HTMLElement).style.color = '#ef4444' }}
+                    onMouseLeave={(e) => { (e.target as HTMLElement).style.color = selectedIndex === index ? '#fca5a5' : '#71717a' }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="1 4 1 10 7 10" />
+                      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
 
@@ -262,19 +355,56 @@ export function DiffModal({ fileChanges, onClose }: DiffModalProps) {
           </div>
         </div>
 
-        {/* Footer: file path */}
+        {/* Footer */}
         {selectedChange && (
           <div
             style={{
               padding: '8px 16px',
               borderTop: '1px solid #3f3f46',
               background: '#18181b',
-              fontSize: 12,
-              color: '#71717a',
-              fontFamily: 'ui-monospace, monospace',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
             }}
           >
-            {selectedChange.filePath}
+            <span
+              style={{
+                fontSize: 12,
+                color: '#71717a',
+                fontFamily: 'ui-monospace, monospace',
+              }}
+            >
+              {selectedChange.filePath}
+            </span>
+            {onRevertFile && (
+              <button
+                onClick={() => {
+                  onRevertFile(selectedChange.filePath)
+                  if (selectedIndex >= fileChanges.length - 1 && selectedIndex > 0) {
+                    setSelectedIndex(selectedIndex - 1)
+                  }
+                }}
+                style={{
+                  background: '#ef444420',
+                  border: '1px solid #ef444440',
+                  color: '#ef4444',
+                  cursor: 'pointer',
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="1 4 1 10 7 10" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                </svg>
+                Revert This File
+              </button>
+            )}
           </div>
         )}
       </div>
