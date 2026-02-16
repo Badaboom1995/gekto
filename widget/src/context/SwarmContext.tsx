@@ -160,43 +160,60 @@ export function SwarmProvider({
     visualsRef.current = visuals
   }, [visuals])
 
-  // Auto-create visuals for new agents
+  // Load saved visuals from server on mount
   useEffect(() => {
-    const agentIds = Object.keys(agents)
-    const visualIds = Object.keys(visualsRef.current)
-    const newAgentIds = agentIds.filter(id => !visualIds.includes(id))
-
-    if (newAgentIds.length > 0) {
-      setVisuals(prev => {
-        const next = { ...prev }
-        const existingColors = Object.values(prev).map(v => v.color)
-
-        newAgentIds.forEach((id, index) => {
-          const color = randomDistinctColor([...existingColors])
-          existingColors.push(color)
-
-          // Calculate grid position for new agent
-          const totalCount = Object.keys(prev).length + index
-          const padding = 30
-          const originX = window.innerWidth - LIZARD_SIZE - padding
-          const originY = window.innerHeight - LIZARD_SIZE - padding
-          const rows = Math.floor((window.innerHeight * 0.7) / (LIZARD_SIZE + gap)) || 1
-          const row = totalCount % rows
-          const col = Math.floor(totalCount / rows)
-
-          next[id] = {
-            position: {
-              x: originX - col * (LIZARD_SIZE + gap),
-              y: originY - row * (LIZARD_SIZE + gap),
-            },
-            color,
-          }
-        })
-
-        return next
+    fetch('/__gekto/api/lizards')
+      .then(res => res.json())
+      .then((saved: Array<{ id: string; position: { x: number; y: number }; settings?: { color?: string } }>) => {
+        if (saved && saved.length > 0) {
+          const loaded: Record<string, LizardVisual> = {}
+          saved.forEach(l => {
+            loaded[l.id] = {
+              position: l.position,
+              color: l.settings?.color || '#BFFF6B',
+            }
+          })
+          setVisuals(loaded)
+        }
       })
-    }
-  }, [agents, gap])
+      .catch(() => {
+        // Ignore errors - will use auto-generated visuals
+      })
+  }, [])
+
+  // Auto-create visuals for new agents (from store that don't have visuals yet)
+  const agentIds = Object.keys(agents)
+  const newAgentIds = agentIds.filter(id => !visuals[id])
+
+  if (newAgentIds.length > 0) {
+    const next = { ...visuals }
+    const existingColors = Object.values(visuals).map(v => v.color)
+
+    newAgentIds.forEach((id) => {
+      const color = randomDistinctColor([...existingColors])
+      existingColors.push(color)
+
+      // Calculate column position based on agent's index in the full list
+      const agentIndex = agentIds.indexOf(id)
+      const padding = 30
+      const originX = window.innerWidth - LIZARD_SIZE - padding
+      const originY = window.innerHeight - LIZARD_SIZE - padding
+      const rows = Math.floor((window.innerHeight * 0.7) / (LIZARD_SIZE + gap)) || 1
+      const row = agentIndex % rows
+      const col = Math.floor(agentIndex / rows)
+
+      next[id] = {
+        position: {
+          x: originX - col * (LIZARD_SIZE + gap),
+          y: originY - row * (LIZARD_SIZE + gap),
+        },
+        color,
+      }
+    })
+
+    // Update state synchronously during render (not in effect)
+    setVisuals(next)
+  }
 
   // Track shift key
   useEffect(() => {
@@ -400,10 +417,10 @@ export function SwarmProvider({
     const data = Object.entries(visualsRef.current).map(([id, visual]) => {
       const instance = lizardInstancesRef.current.get(id)
       const position = instance ? instance.getPosition() : visual.position
-      return { id, position, color: visual.color }
+      return { id, position, settings: { color: visual.color } }
     })
 
-    fetch('/__gekto/api/visuals', {
+    fetch('/__gekto/api/lizards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),

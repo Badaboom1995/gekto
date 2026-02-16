@@ -175,3 +175,191 @@ The `bun run bundle` command creates a self-contained `gekto.ts` file with:
 - [ ] Publish to npm (`npx gekto`)
 - [ ] Configuration file support (gekto.config.js)
 - [ ] Documentation
+
+---
+
+# Whiteboard Integration - 3 Parallel Agents
+
+Based on CANVAS.md, here's the plan for 3 parallel agents to implement whiteboard task cards.
+
+---
+
+## Agent 1: TaskShape Enhancement
+
+**Goal**: Update TaskShape component with new props and UI to match the mockup design.
+
+**File**: `widget/src/components/whiteboard/TaskShape.tsx`
+
+### Tasks:
+
+1. **Update TaskShape type definition** - Replace old props with:
+   ```typescript
+   {
+     w: number
+     h: number
+     title: string
+     abstract: string       // NEW - summary of work done
+     branch?: string        // NEW - worktree branch name (optional)
+     status: 'READ' | 'WRITE' | 'BASH' | 'GREP' | 'EDIT' | 'done' | 'error' | 'pending'
+     message?: string       // NEW - bottom zone for errors/results
+     agentId?: string       // NEW - link to agent in AgentStore
+   }
+   ```
+
+2. **Update UI to match mockup**:
+   ```
+   ┌─────────────────────────────┐
+   │ [STATUS]         Task Title │  ← status badge + title
+   ├─────────────────────────────┤
+   │ Abstract of what was done   │  ← summary of work
+   ├─────────────────────────────┤
+   │ 📁 feature/auth-flow        │  ← worktree branch (optional)
+   ├─────────────────────────────┤
+   │ [Web] [diff]        [more]  │  ← action buttons
+   ├─────────────────────────────┤
+   │ Agent stopped. Out of tokens│  ← message zone
+   └─────────────────────────────┘
+   ```
+
+3. **Status badge colors**:
+   - Running tools (`READ`, `WRITE`, `BASH`, `GREP`, `EDIT`) → blue accent
+   - `done` → green accent
+   - `error` → red accent
+   - `pending` → yellow accent
+
+4. **Action buttons row**: Web, diff, more menu
+
+5. **Remove old props**: `description`, `isExpanded`, `isLoading`, `color`
+
+---
+
+## Agent 2: Whiteboard-Agent Sync
+
+**Goal**: Create sync mechanism between AgentContext and TaskShapes.
+
+**Files**:
+- CREATE `widget/src/components/whiteboard/useWhiteboardSync.ts`
+- MODIFY `widget/src/components/whiteboard/WhiteboardCurtain.tsx`
+
+### Tasks:
+
+1. **Create `useWhiteboardSync.ts` hook**:
+   ```typescript
+   import { useAgent } from '../../context/AgentContext'
+   import { Editor } from 'tldraw'
+
+   export function useWhiteboardSync(editor: Editor | null) {
+     const { activeAgents, sessions, getCurrentTool } = useAgent()
+
+     useEffect(() => {
+       if (!editor) return
+       // For each active agent, ensure TaskShape exists
+       // Update shape props when agent state changes
+     }, [editor, activeAgents, sessions])
+   }
+   ```
+
+2. **Sync logic**:
+   - New agent → create TaskShape at next grid position
+   - Agent tool change → update `status` prop to tool name
+   - Agent complete → set `status: 'done'`
+   - Agent error → set `status: 'error'`
+   - Sync `abstract` from agent's last response
+   - Sync `message` from current tool input or error
+
+3. **Shape-agent mapping**: `Map<agentId, shapeId>` in memory
+
+4. **Integrate in WhiteboardCurtain**: Call hook with editor ref
+
+5. **Data sources from AgentContext**:
+   - `activeAgents` array → all running agents
+   - `sessions` map → state per agent
+   - `getCurrentTool(id)` → active tool name
+
+---
+
+## Agent 3: Position Management
+
+**Goal**: Auto-grid layout for new cards + persist positions.
+
+**Files**:
+- CREATE `widget/src/components/whiteboard/useWhiteboardPositions.ts`
+- MODIFY `widget/src/components/whiteboard/WhiteboardCurtain.tsx`
+
+### Tasks:
+
+1. **Create `useWhiteboardPositions.ts` hook**:
+   ```typescript
+   interface CardPosition { shapeId: string; x: number; y: number }
+
+   export function useWhiteboardPositions(editor: Editor | null) {
+     // Load from gekto-storage API
+     // Save when shapes move
+     // getNextGridPosition() for new cards
+   }
+   ```
+
+2. **Auto-grid algorithm**:
+   ```typescript
+   const CARD_WIDTH = 300, CARD_HEIGHT = 200, GAP = 20, COLS = 4
+
+   function getNextGridPosition(existingShapes) {
+     // Find first unoccupied grid slot
+     for (let row = 0; row < 100; row++) {
+       for (let col = 0; col < COLS; col++) {
+         const x = col * (CARD_WIDTH + GAP)
+         const y = row * (CARD_HEIGHT + GAP)
+         if (!occupied(x, y)) return { x, y }
+       }
+     }
+   }
+   ```
+
+3. **Persistence via API**:
+   - Load: `GET /__gekto/api/storage/whiteboard-positions`
+   - Save: `POST /__gekto/api/storage/whiteboard-positions`
+   - Debounce saves (500ms)
+
+4. **Subscribe to shape changes**:
+   ```typescript
+   editor.store.listen((change) => {
+     // Queue position save when TaskShapes move
+   })
+   ```
+
+5. **Load behavior**:
+   - No saved positions → use auto-grid
+   - Has saved positions → restore them
+   - New cards → place at next grid slot
+
+---
+
+## Agent Coordination
+
+```
+Agent 1 (TaskShape)  ──┐
+                       ├──► All can start in parallel
+Agent 2 (Sync)       ──┤    Agent 2 & 3 define hook interfaces first
+                       │    Then integrate with Agent 1's types
+Agent 3 (Positions)  ──┘
+```
+
+### Files Summary
+
+| Agent | Creates | Modifies |
+|-------|---------|----------|
+| 1 | - | `TaskShape.tsx` |
+| 2 | `useWhiteboardSync.ts` | `WhiteboardCurtain.tsx` |
+| 3 | `useWhiteboardPositions.ts` | `WhiteboardCurtain.tsx` |
+
+---
+
+## Testing Checklist
+
+- [ ] TaskShape renders new UI with status badge
+- [ ] Status badges show correct colors
+- [ ] Shapes auto-create when agents start
+- [ ] Shapes update status in real-time as tools run
+- [ ] Positions persist across page reload
+- [ ] New cards appear in grid layout
+- [ ] Drag repositioning saves correctly

@@ -5,7 +5,7 @@ import { ComparisonContextType, ComparisonItem } from '../types/comparison'
 const ComparisonContext = createContext<ComparisonContextType | undefined>(undefined)
 
 const MAX_COMPARISONS = 5
-const STORAGE_KEY = 'classicpc_comparison'
+const STORAGE_KEY = 'retropc_comparison'
 
 export function ComparisonProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<ComparisonItem[]>(() => {

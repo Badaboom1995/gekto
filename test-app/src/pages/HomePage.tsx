@@ -142,7 +142,6 @@ const trendingItems: RecommendationItem[] = [
 
 function HomePage() {
   const [searchQuery, setSearchQuery] = useState('')
-  const [isSearching, setIsSearching] = useState(false)
 
   // Combine all searchable items
   const allItems = useMemo(() => [
@@ -166,10 +165,7 @@ function HomePage() {
   }, [searchQuery, allItems])
 
   const handleSearch = (value: string) => {
-    setIsSearching(true)
     setSearchQuery(value)
-    // Simulate a brief loading state for better UX
-    setTimeout(() => setIsSearching(false), 200)
   }
 
   return (
@@ -177,7 +173,7 @@ function HomePage() {
       {/* Hero Section */}
       <section className="home-hero">
         <div className="home-hero-content">
-          <span className="home-hero-badge">Welcome to ClassicPC</span>
+          <span className="home-hero-badge">Welcome to RetroPC</span>
           <h1 className="home-hero-title">
             Discover the<br />
             <span className="highlight">Golden Era</span><br />
@@ -193,9 +189,8 @@ function HomePage() {
             <SearchBar
               placeholder="Search vintage computers, accessories, software..."
               onSearch={handleSearch}
-              debounceDelay={300}
-              size="large"
-              isLoading={isSearching}
+              resultCount={searchResults ? searchResults.length : allItems.length}
+              searchQuery={searchQuery}
             />
             {searchResults && searchResults.length > 0 && (
               <div className="search-results-dropdown">
@@ -366,6 +361,57 @@ function HomePage() {
         </div>
       </section>
 
+      {/* Bio Section */}
+      <section className="home-bio">
+        <div className="bio-content">
+          <div className="bio-image">
+            <div className="bio-image-frame">
+              <img
+                src="https://images.unsplash.com/photo-1518770660439-4636190af475?w=600"
+                alt="Vintage computer workshop"
+              />
+              <div className="bio-experience-badge">
+                <span className="experience-years">15+</span>
+                <span className="experience-text">Years of Passion</span>
+              </div>
+            </div>
+          </div>
+          <div className="bio-text">
+            <span className="bio-label">Our Story</span>
+            <h2 className="bio-title">Preserving Computing History, One Machine at a Time</h2>
+            <p className="bio-description">
+              Founded in 2009 by a group of passionate collectors and engineers, RetroPC began
+              in a small garage filled with dusty Commodore 64s and Apple IIs. What started as
+              a hobby quickly evolved into a mission: to rescue, restore, and rehome the machines
+              that shaped our digital world.
+            </p>
+            <p className="bio-description">
+              Today, we're proud to be the world's leading marketplace for vintage computers.
+              Our team of expert technicians meticulously restores each machine to working
+              condition, ensuring these pieces of history continue to inspire future generations
+              of computer enthusiasts.
+            </p>
+            <div className="bio-highlights">
+              <div className="bio-highlight">
+                <span className="highlight-icon">🏆</span>
+                <div className="highlight-text">
+                  <span className="highlight-title">Award Winning</span>
+                  <span className="highlight-desc">Best Vintage Tech Retailer 2023</span>
+                </div>
+              </div>
+              <div className="bio-highlight">
+                <span className="highlight-icon">🌍</span>
+                <div className="highlight-text">
+                  <span className="highlight-title">Global Community</span>
+                  <span className="highlight-desc">Collectors in 50+ countries</span>
+                </div>
+              </div>
+            </div>
+            <Link to="/about" className="btn btn-primary">Learn More About Us</Link>
+          </div>
+        </div>
+      </section>
+
       {/* Testimonials Section */}
       <section className="home-testimonials">
         <div className="section-header">
@@ -416,7 +462,7 @@ function HomePage() {
       <section className="home-cta">
         <div className="cta-content">
           <h2>Ready to own a piece of computing history?</h2>
-          <p>Join thousands of collectors and enthusiasts who trust ClassicPC for authentic vintage computers.</p>
+          <p>Join thousands of collectors and enthusiasts who trust RetroPC for authentic vintage computers.</p>
           <div className="cta-actions">
             <Link to="/shop" className="btn btn-primary btn-large">
               Start Exploring

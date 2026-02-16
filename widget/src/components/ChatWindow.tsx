@@ -109,8 +109,20 @@ export function ChatWindow({
   // Register as message listener
   useAgentMessageListener(lizardId, handleAgentMessage)
 
-  // Load chat history on mount
+  // Load chat history on mount - from task.chatHistory if available, else REST API
   useEffect(() => {
+    const greeting = lizardId === MASTER_ID
+      ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
+      : 'Hi! How can I help you today?'
+
+    // For agents with tasks, use task.chatHistory from store
+    if (task?.chatHistory && task.chatHistory.length > 0) {
+      setMessages(task.chatHistory)
+      setHistoryLoaded(true)
+      return
+    }
+
+    // Fall back to REST API (for master or agents without tasks)
     fetch(`/__gekto/api/chats/${lizardId}`)
       .then(res => res.json())
       .then((saved: Array<{
@@ -139,10 +151,6 @@ export function ChatWindow({
             } : undefined,
           })))
         } else {
-          // Default greeting if no history
-          const greeting = lizardId === MASTER_ID
-            ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
-            : 'Hi! How can I help you today?'
           setMessages([{
             id: '1',
             text: greeting,
@@ -153,9 +161,6 @@ export function ChatWindow({
         setHistoryLoaded(true)
       })
       .catch(() => {
-        const greeting = lizardId === MASTER_ID
-          ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
-          : 'Hi! How can I help you today?'
         setMessages([{
           id: '1',
           text: greeting,
@@ -164,11 +169,14 @@ export function ChatWindow({
         }])
         setHistoryLoaded(true)
       })
-  }, [lizardId])
+  }, [lizardId, task])
 
-  // Save chat history when messages change
+  // Save chat history when messages change (only for master/agents without tasks)
+  // Agents with tasks use store persistence via AgentContext
   useEffect(() => {
     if (!historyLoaded || messages.length === 0) return
+    // Skip REST API save if using store (agent has task)
+    if (agent?.taskId) return
 
     const toSave = messages.map(m => ({
       id: m.id,
@@ -191,7 +199,7 @@ export function ChatWindow({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(toSave),
     }).catch(err => console.error('[Chat] Failed to save history:', err))
-  }, [messages, lizardId, historyLoaded])
+  }, [messages, lizardId, historyLoaded, agent?.taskId])
 
   // Auto-scroll to bottom on new messages (instant on initial load, smooth after)
   const hasScrolledInitially = useRef(false)
@@ -756,6 +764,9 @@ export function ChatWindow({
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onPaste={(e) => e.stopPropagation()}
+            onCopy={(e) => e.stopPropagation()}
+            onCut={(e) => e.stopPropagation()}
             placeholder={
               agentState === 'error'
                 ? 'Connection error'

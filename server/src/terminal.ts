@@ -30,8 +30,6 @@ export function setupTerminalWebSocket(server: Server, path: string = '/__gekto/
   })
 
   wss.on('connection', (ws: WebSocket) => {
-    console.log('[Terminal] New connection, waiting for resize...')
-
     // Create session but don't spawn PTY yet - wait for resize
     const session: TerminalSession = {
       pty: null,
@@ -62,7 +60,6 @@ export function setupTerminalWebSocket(server: Server, path: string = '/__gekto/
           } as Record<string, string>,
         })
 
-        console.log('[Terminal] PTY spawned, pid:', ptyProcess.pid, `(${session.cols}x${session.rows})`)
         session.pty = ptyProcess
 
         // PTY output → WebSocket
@@ -73,7 +70,6 @@ export function setupTerminalWebSocket(server: Server, path: string = '/__gekto/
         })
 
         ptyProcess.onExit(({ exitCode }) => {
-          console.log(`[Terminal] Shell exited with code ${exitCode}`)
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'exit', code: exitCode }))
             ws.close()
@@ -82,7 +78,6 @@ export function setupTerminalWebSocket(server: Server, path: string = '/__gekto/
         })
 
       } catch (err) {
-        console.error('[Terminal] Failed to spawn PTY:', err)
         ws.send(JSON.stringify({
           type: 'error',
           message: `Failed to start terminal: ${err}`
@@ -120,18 +115,15 @@ export function setupTerminalWebSocket(server: Server, path: string = '/__gekto/
     })
 
     ws.on('close', () => {
-      console.log('[Terminal] Connection closed')
       session.pty?.kill()
       sessions.delete(ws)
     })
 
-    ws.on('error', (err) => {
-      console.error('[Terminal] WebSocket error:', err)
+    ws.on('error', () => {
       session.pty?.kill()
       sessions.delete(ws)
     })
   })
 
-  console.log(`[Terminal] WebSocket server ready at ${path}`)
   return wss
 }

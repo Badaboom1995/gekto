@@ -614,6 +614,157 @@
   line-height: 1.6;
 }
 
+/* Bio Section */
+.home-bio {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 80px 24px;
+  border-top: 1px solid #222;
+}
+
+.bio-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 60px;
+  align-items: center;
+}
+
+.bio-image {
+  position: relative;
+}
+
+.bio-image-frame {
+  position: relative;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+.bio-image-frame img {
+  width: 100%;
+  height: 400px;
+  object-fit: cover;
+  display: block;
+}
+
+.bio-image-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.1), transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.bio-experience-badge {
+  position: absolute;
+  bottom: -20px;
+  right: 24px;
+  background: linear-gradient(145deg, rgba(255, 107, 107, 0.9), rgba(255, 217, 61, 0.8));
+  border-radius: 16px;
+  padding: 20px 28px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(255, 107, 107, 0.3);
+  z-index: 2;
+}
+
+.experience-years {
+  display: block;
+  font-size: 32px;
+  font-weight: 800;
+  color: #000;
+  line-height: 1;
+}
+
+.experience-text {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+.bio-text {
+  padding-left: 20px;
+}
+
+.bio-label {
+  display: inline-block;
+  background: linear-gradient(145deg, rgba(255, 107, 107, 0.2), rgba(255, 217, 61, 0.1));
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ff6b6b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 20px;
+}
+
+.bio-title {
+  font-size: 36px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+  margin-bottom: 24px;
+}
+
+.bio-description {
+  font-size: 16px;
+  color: #888;
+  line-height: 1.8;
+  margin-bottom: 20px;
+}
+
+.bio-highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 32px 0;
+}
+
+.bio-highlight {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px 20px;
+  transition: all 0.3s ease;
+}
+
+.bio-highlight:hover {
+  background: rgba(255, 107, 107, 0.05);
+  border-color: rgba(255, 107, 107, 0.2);
+  transform: translateX(8px);
+}
+
+.highlight-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.highlight-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.highlight-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.highlight-desc {
+  font-size: 13px;
+  color: #666;
+}
+
 /* Testimonials Section */
 .home-testimonials {
   max-width: 1200px;
@@ -822,6 +973,39 @@
   .chip-item {
     font-size: 14px;
     padding: 10px 6px;
+  }
+
+  /* Bio section responsive */
+  .bio-content {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    text-align: center;
+  }
+
+  .bio-text {
+    padding-left: 0;
+  }
+
+  .bio-title {
+    font-size: 28px;
+  }
+
+  .bio-image-frame img {
+    height: 300px;
+  }
+
+  .bio-experience-badge {
+    right: 50%;
+    transform: translateX(50%);
+  }
+
+  .bio-highlights {
+    align-items: center;
+  }
+
+  .bio-highlight {
+    width: 100%;
+    max-width: 400px;
   }
 }
 

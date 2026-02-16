@@ -30,6 +30,15 @@ export function Lizard({ agentId }: LizardProps) {
 
   // Get agent from global store
   const agent = useStore((s) => s.agents[agentId])
+  const agents = useStore((s) => s.agents)
+  const tasks = useStore((s) => s.tasks)
+  const isWhiteboardOpen = useStore((s) => s.isWhiteboardOpen)
+
+  // Calculate agent index and name
+  const agentIds = Object.keys(agents)
+  const agentIndex = agentIds.indexOf(agentId)
+  const task = agent ? tasks[agent.taskId] : undefined
+  const agentName = task?.name || `Agent ${agentIndex + 1}`
 
   // Get visual from SwarmContext (local state)
   const visual = getVisual(agentId)
@@ -110,6 +119,9 @@ export function Lizard({ agentId }: LizardProps) {
 
   if (!agent) return null
 
+  // Hide when whiteboard is open (default to false if undefined during hydration)
+  if (isWhiteboardOpen === true) return null
+
   return (
     <>
       {/* Original lizard at copy origin */}
@@ -144,6 +156,23 @@ export function Lizard({ agentId }: LizardProps) {
         onClick={handleClick}
       >
         <LizardAvatar size={LIZARD_SIZE} color={color} isSpinning={agentState === 'working'} disableMouseFollow={showDone} />
+
+        {/* Name label - to the left of avatar, vertically centered */}
+        <div
+          className="absolute whitespace-nowrap pointer-events-none"
+          style={{
+            right: '100%',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            marginRight: 8,
+            fontSize: 12,
+            fontWeight: 600,
+            color: '#9ca3af',
+            textShadow: '0 1px 3px rgba(0, 0, 0, 0.5)',
+          }}
+        >
+          {agentName}
+        </div>
       </div>
 
       {/* Chat Window */}

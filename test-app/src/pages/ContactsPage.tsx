@@ -52,8 +52,8 @@ function ContactsPage() {
               </svg>
             </div>
             <h3>Email Us</h3>
-            <p>hello@classicpc.com</p>
-            <p>support@classicpc.com</p>
+            <p>hello@retropc.com</p>
+            <p>support@retropc.com</p>
           </div>
         </div>
 

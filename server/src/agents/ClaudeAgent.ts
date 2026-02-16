@@ -1,4 +1,5 @@
 import * as pty from 'node-pty'
+import { CLAUDE_PATH } from '../claudePath.js'
 
 export type AgentState = 'loading' | 'ready' | 'working' | 'waiting_input' | 'completed' | 'error'
 
@@ -24,7 +25,8 @@ export class ClaudeAgent {
       this.resolveReady = resolve
     })
 
-    this.pty = pty.spawn('claude', [], {
+    // Use full path to claude binary (resolved at startup)
+    this.pty = pty.spawn(CLAUDE_PATH, [], {
       name: 'xterm-256color',
       cols: 120,
       rows: 40,

@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import { CLAUDE_PATH } from '../claudePath.js'
 
 // === Types ===
 
@@ -177,7 +178,7 @@ function runClaudeOnce(
 
     console.log('[Orchestrator] Running claude (haiku) for orchestration')
 
-    const proc = spawn('claude', args, {
+    const proc = spawn(CLAUDE_PATH, args, {
       cwd: workingDir,
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe'],

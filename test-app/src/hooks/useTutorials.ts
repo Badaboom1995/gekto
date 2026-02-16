@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Tutorial, TutorialProgress } from '../types/tutorials'
 
-const STORAGE_KEY = 'classicpc_tutorial_progress'
+const STORAGE_KEY = 'retropc_tutorial_progress'
 
 export function useTutorials(tutorials: Tutorial[]) {
   const [progress, setProgress] = useState<Record<number, TutorialProgress>>(() => {
@@ -21,7 +21,7 @@ export function useTutorials(tutorials: Tutorial[]) {
   const [selectedDifficulty, setSelectedDifficulty] = useState<string | null>(null)
   const [favorites, setFavorites] = useState<number[]>(() => {
     try {
-      const stored = localStorage.getItem('classicpc_tutorial_favorites')
+      const stored = localStorage.getItem('retropc_tutorial_favorites')
       return stored ? JSON.parse(stored) : []
     } catch {
       return []
@@ -37,7 +37,7 @@ export function useTutorials(tutorials: Tutorial[]) {
   // Save favorites to localStorage
   const saveFavorites = (newFavorites: number[]) => {
     setFavorites(newFavorites)
-    localStorage.setItem('classicpc_tutorial_favorites', JSON.stringify(newFavorites))
+    localStorage.setItem('retropc_tutorial_favorites', JSON.stringify(newFavorites))
   }
 
   const markStepComplete = (tutorialId: number, stepId: number) => {

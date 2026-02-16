@@ -1,5 +1,6 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process'
 import { randomUUID } from 'crypto'
+import { CLAUDE_PATH } from '../claudePath.js'
 
 // Simplified Gekto - single Opus process for direct mode
 // Plan mode is the default, direct mode is enabled via UI toggle
@@ -77,12 +78,16 @@ function spawnOpus(): void {
     '--session-id', gektoSessionId,
   ]
 
-  console.log('[Gekto:Opus] Spawning with session ID:', gektoSessionId)
+  console.log(`[GektoPersistent] Spawning: "${CLAUDE_PATH}"`)
 
-  opusProcess = spawn('claude', args, {
+  opusProcess = spawn(CLAUDE_PATH, args, {
     cwd: workingDir,
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
+  })
+
+  opusProcess.on('error', (err) => {
+    console.error(`[GektoPersistent] Spawn error:`, err)
   })
 
   opusProcess.stdout.on('data', (data) => {
@@ -94,7 +99,6 @@ function spawnOpus(): void {
       if (!line.trim()) continue
       try {
         const event = JSON.parse(line)
-        console.log('[Gekto:Opus] Event:', event.type, event.subtype || '')
         handleOpusEvent(event)
       } catch {
         // Ignore non-JSON lines
@@ -102,12 +106,11 @@ function spawnOpus(): void {
     }
   })
 
-  opusProcess.stderr.on('data', (data) => {
-    console.error('[Gekto:Opus] stderr:', data.toString())
+  opusProcess.stderr.on('data', () => {
+    // Ignore stderr
   })
 
-  opusProcess.on('close', (code) => {
-    console.log('[Gekto:Opus] Exited:', code)
+  opusProcess.on('close', () => {
     opusProcess = null
     opusReady = false
     opusLoading = true
@@ -122,8 +125,7 @@ function spawnOpus(): void {
     setTimeout(spawnOpus, 1000)
   })
 
-  opusProcess.on('error', (err) => {
-    console.error('[Gekto:Opus] Error:', err)
+  opusProcess.on('error', () => {
     opusProcess = null
     opusReady = false
     opusLoading = true
@@ -133,7 +135,6 @@ function spawnOpus(): void {
   // Warm up: send a quick message to trigger ready state
   setTimeout(() => {
     if (opusProcess && !opusReady) {
-      console.log('[Gekto:Opus] Sending warm-up message...')
       const warmup = { type: 'user', message: { role: 'user', content: 'hi' } }
       opusProcess.stdin.write(JSON.stringify(warmup) + '\n')
     }
@@ -144,7 +145,6 @@ function handleOpusEvent(event: Record<string, unknown>): void {
   // Result event means process is working
   if (event.type === 'result') {
     if (!opusReady) {
-      console.log('[Gekto:Opus] Ready! (first response received)')
       opusReady = true
       opusLoading = false
       updateState()
@@ -245,8 +245,6 @@ export async function sendToGekto(
 ): Promise<GektoResponse> {
   const startTime = Date.now()
 
-  console.log(`[Gekto] Processing in "${mode}" mode`)
-
   // Plan mode - return immediately, caller will use gektoTools.ts for planning
   if (mode === 'plan') {
     return {
@@ -272,7 +270,6 @@ export async function sendToGekto(
 
 function updateState(): void {
   const state = getGektoState()
-  console.log('[Gekto] updateState called, state:', state, 'callback:', !!stateChangeCallback)
   stateChangeCallback?.(state)
 }
 
@@ -292,7 +289,6 @@ export function getGektoSessionId(): string {
 
 // Reset session to start fresh (clears history)
 export function resetGektoSession(): void {
-  console.log('[Gekto:Opus] Resetting session, generating new ID')
   gektoSessionId = randomUUID()
   // Kill current process to force restart with new session
   if (opusProcess) {
@@ -307,7 +303,6 @@ export function abortGekto(): boolean {
 
   // Send SIGINT to interrupt current Opus task (like Ctrl+C / ESC)
   if (opusProcess && opusPendingResolve) {
-    console.log('[Gekto:Opus] Aborting current task (SIGINT)...')
     opusProcess.kill('SIGINT')
     // Resolve the pending promise so caller doesn't hang
     opusPendingResolve('Task was stopped.')

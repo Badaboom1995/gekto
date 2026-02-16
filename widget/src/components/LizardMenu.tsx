@@ -2,6 +2,7 @@ import { useRef, useMemo } from 'react'
 import { ColorWheelIcon, TrashIcon } from '@radix-ui/react-icons'
 import { RadialMenu } from './RadialMenu'
 import { useSwarm } from '../context/SwarmContext'
+import { useStore } from '../store/store'
 
 function hslToHex(hsl: string): string {
   const match = hsl.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/)
@@ -44,12 +45,13 @@ interface LizardMenuProps {
 }
 
 export function LizardMenu({ lizardId, isVisible, size, onHide, onShake }: LizardMenuProps) {
-  const { lizards, deleteLizard, updateLizardColor, saveLizards } = useSwarm()
-  const isLastLizard = lizards.length === 1
+  const { visuals, deleteAgent, updateColor, saveVisuals } = useSwarm()
+  const storeAgents = useStore((s) => s.agents)
+  const isLastLizard = Object.keys(storeAgents).length === 1
   const colorInputRef = useRef<HTMLInputElement>(null)
 
-  const currentLizard = lizards.find(l => l.id === lizardId)
-  const currentColor = currentLizard?.settings?.color ?? '#BFFF6B'
+  const currentVisual = visuals[lizardId]
+  const currentColor = currentVisual?.color ?? '#BFFF6B'
   const hexColor = useMemo(() => hslToHex(currentColor), [currentColor])
 
   const menuItems = [
@@ -72,7 +74,7 @@ export function LizardMenu({ lizardId, isVisible, size, onHide, onShake }: Lizar
           onHide()
           onShake()
         } else {
-          deleteLizard(lizardId)
+          deleteAgent(lizardId)
           onHide()
         }
       },
@@ -80,8 +82,8 @@ export function LizardMenu({ lizardId, isVisible, size, onHide, onShake }: Lizar
   ]
 
   const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    updateLizardColor(lizardId, e.target.value)
-    saveLizards()
+    updateColor(lizardId, e.target.value)
+    saveVisuals()
   }
 
   return (

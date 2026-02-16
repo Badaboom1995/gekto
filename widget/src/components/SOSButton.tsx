@@ -1,19 +1,19 @@
 import { useState, useMemo } from 'react'
 import { useAgent } from '../context/AgentContext'
-import { useSwarm } from '../context/SwarmContext'
+import { useStore } from '../store/store'
 
 export function SOSButton() {
   const [isOpen, setIsOpen] = useState(false)
   const { activeAgents, killAgent, killAllAgents } = useAgent()
-  const { lizards } = useSwarm()
+  const storeAgents = useStore((s) => s.agents)
 
-  const lizardIds = useMemo(() => new Set(lizards.map(l => l.id)), [lizards])
+  const agentIds = useMemo(() => new Set(Object.keys(storeAgents)), [storeAgents])
 
   const runningAgents = activeAgents.filter(a => a.isRunning || a.isProcessing)
   const hasRunningAgents = runningAgents.length > 0
 
-  // Orphan agents - running but lizard doesn't exist
-  const orphanAgents = activeAgents.filter(a => !lizardIds.has(a.lizardId))
+  // Orphan agents - running but agent doesn't exist in store
+  const orphanAgents = activeAgents.filter(a => !agentIds.has(a.lizardId))
   const hasOrphans = orphanAgents.length > 0
 
   // Kill all orphan agents
@@ -134,7 +134,7 @@ export function SOSButton() {
               </div>
             ) : (
               activeAgents.map(agent => {
-                const isOrphan = !lizardIds.has(agent.lizardId)
+                const isOrphan = !agentIds.has(agent.lizardId)
                 const isActive = agent.isRunning || agent.isProcessing
 
                 return (

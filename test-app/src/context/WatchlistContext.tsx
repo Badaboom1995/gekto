@@ -4,7 +4,7 @@ import { WatchlistContextType, WatchlistItem, PriceAlertConfig, AvailabilityAler
 
 const WatchlistContext = createContext<WatchlistContextType | undefined>(undefined)
 
-const STORAGE_KEY = 'classicpc_watchlist'
+const STORAGE_KEY = 'retropc_watchlist'
 
 export function WatchlistProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<WatchlistItem[]>(() => {

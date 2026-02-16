@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Tldraw, Editor, createShapeId } from 'tldraw'
-import { TaskShapeUtil, setOnOpenChat, setOnViewDiff } from './TaskShape'
+import { Tldraw, Editor, DefaultToolbar, TldrawUiMenuItem, useTools, useIsToolSelected } from 'tldraw'
+import { TaskShapeUtil, setOnOpenChat, setOnViewDiff, setOnTitleChange } from './TaskShape'
 import { DiffModal } from './DiffModal'
 import { useAgentShapeSync } from './useAgentShapeSync'
 import { useStore } from '../../store/store'
@@ -10,6 +10,38 @@ import { ChatWindow } from '../ChatWindow'
 
 // Custom shape utils for tldraw
 const customShapeUtils = [TaskShapeUtil]
+
+// Custom toolbar with only: select, hand, draw, eraser, rectangle, and Add Task
+function CustomToolbar({ onAddTask }: { onAddTask: () => void }) {
+  const tools = useTools()
+  const isSelectSelected = useIsToolSelected(tools['select'])
+  const isHandSelected = useIsToolSelected(tools['hand'])
+  const isDrawSelected = useIsToolSelected(tools['draw'])
+  const isEraserSelected = useIsToolSelected(tools['eraser'])
+  const isRectangleSelected = useIsToolSelected(tools['rectangle'])
+
+  return (
+    <DefaultToolbar>
+      <TldrawUiMenuItem {...tools['select']} isSelected={isSelectSelected} />
+      <TldrawUiMenuItem {...tools['hand']} isSelected={isHandSelected} />
+      <TldrawUiMenuItem {...tools['draw']} isSelected={isDrawSelected} />
+      <TldrawUiMenuItem {...tools['eraser']} isSelected={isEraserSelected} />
+      {tools['rectangle'] && <TldrawUiMenuItem {...tools['rectangle']} isSelected={isRectangleSelected} />}
+      <button
+        onClick={onAddTask}
+        className="tlui-button tlui-button__tool"
+        title="Add Task"
+        style={{ color: 'inherit' }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <path d="M12 8v8" />
+          <path d="M8 12h8" />
+        </svg>
+      </button>
+    </DefaultToolbar>
+  )
+}
 
 interface WhiteboardCurtainProps {
   persistenceKey?: string
@@ -81,6 +113,19 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
   const agents = useStore((s) => s.agents)
   const tasks = useStore((s) => s.tasks)
   const deleteAgent = useStore((s) => s.deleteAgent)
+  const updateTask = useStore((s) => s.updateTask)
+
+  // Register callback for title changes from TaskShape
+  useEffect(() => {
+    setOnTitleChange((agentId: string, newTitle: string) => {
+      // Find the agent and update its task name
+      const agent = agents[agentId]
+      if (agent?.taskId) {
+        updateTask(agent.taskId, { name: newTitle })
+      }
+    })
+    return () => setOnTitleChange(null)
+  }, [agents, updateTask])
 
   // Get sessions, workingDir, and file changes from AgentContext
   const { sessions, getWorkingDir, getFileChanges } = useAgent()
@@ -133,85 +178,40 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
     }
   }, [])
 
-  const handleClose = useCallback(() => {
-    setWhiteboardOpen(false)
-  }, [setWhiteboardOpen])
+  // Get store actions for creating tasks/agents
+  const createTask = useStore((s) => s.createTask)
+  const createAgent = useStore((s) => s.createAgent)
 
   const handleAddTask = useCallback(() => {
     if (!editor) return
 
-    // Get viewport center for placement
-    const viewportBounds = editor.getViewportScreenBounds()
-    const viewportCenter = editor.screenToPage({
-      x: viewportBounds.x + viewportBounds.width / 2,
-      y: viewportBounds.y + viewportBounds.height / 2,
+    // Generate unique IDs
+    const timestamp = Date.now()
+    const taskId = `task_${timestamp}`
+    const agentId = `agent_${timestamp}`
+
+    // Count existing agents for naming
+    const existingCount = Object.keys(agents).length
+
+    // Create task in store
+    createTask({
+      id: taskId,
+      name: `New Task ${existingCount + 1}`,
+      description: 'Click to add a prompt...',
+      prompt: '',
+      status: 'pending',
     })
 
-    // Card dimensions and grid layout
-    const CARD_WIDTH = 300
-    const CARD_HEIGHT = 200
-    const GAP = 20
-    const COLS = 4
-
-    // Sample tasks showcasing all variations
-    const sampleTasks = [
-      // Row 1: Different statuses
-      { title: 'Pending Task', abstract: 'Just started...', status: 'pending' },
-      { title: 'Reading Files', abstract: 'Scanning codebase for context...', status: 'READ', message: 'Reading src/components/*.tsx' },
-      { title: 'Writing Code', abstract: 'Implementing user authentication', status: 'WRITE', branch: 'feature/auth-flow' },
-      { title: 'Running Tests', abstract: 'Executing test suite', status: 'BASH', message: 'npm run test' },
-
-      // Row 2: More tool statuses + completion states
-      { title: 'Search Task', abstract: 'Looking for API endpoints', status: 'GREP', message: 'Searching for "router.get"' },
-      { title: 'Edit Config', abstract: 'Updating tsconfig settings', status: 'EDIT', branch: 'fix/typescript-config' },
-      { title: 'Completed Task', abstract: 'Added new store component with Zustand', status: 'done', branch: 'feature/store', message: 'diff +142 -28' },
-      { title: 'Failed Task', abstract: 'Attempted to fix build errors', status: 'error', message: 'Agent stopped: Out of tokens' },
-
-      // Row 3: Action variations
-      { title: 'Needs Approval', abstract: 'Ready to commit changes to main', status: 'pending', branch: 'main', message: 'action:Approve:Review and merge 3 files' },
-      { title: 'Review Changes', abstract: 'Refactored authentication module', status: 'done', branch: 'refactor/auth', message: 'action:View Diff:15 files changed' },
-      { title: 'With Branch', abstract: 'Working on new feature', status: 'READ', branch: 'feature/dashboard-widgets' },
-      { title: 'No Branch', abstract: 'Quick investigation task', status: 'GREP' },
-    ]
-
-    // Calculate starting position (top-left of grid)
-    const gridWidth = COLS * CARD_WIDTH + (COLS - 1) * GAP
-    const startX = viewportCenter.x - gridWidth / 2
-    const startY = viewportCenter.y - CARD_HEIGHT
-
-    // Create all sample tasks in a grid
-    const shapeIds = sampleTasks.map((task, index) => {
-      const col = index % COLS
-      const row = Math.floor(index / COLS)
-      const x = startX + col * (CARD_WIDTH + GAP)
-      const y = startY + row * (CARD_HEIGHT + GAP)
-
-      // Build props object, only including optional fields if they have values
-      const props: Record<string, unknown> = {
-        w: CARD_WIDTH,
-        h: CARD_HEIGHT,
-        title: task.title,
-        abstract: task.abstract,
-        status: task.status,
-      }
-      if (task.branch) props.branch = task.branch
-      if (task.message) props.message = task.message
-
-      const shapeId = createShapeId()
-      editor.createShape({
-        id: shapeId,
-        type: 'task' as const,
-        x,
-        y,
-        props,
-      } as any)
-
-      return shapeId
+    // Create agent linked to task
+    createAgent({
+      id: agentId,
+      taskId,
+      personaId: 'plain',
+      status: 'idle',
     })
-    
-    // Select all new shapes
-    editor.select(...shapeIds)
-  }, [editor])
+
+    // Shape will be created automatically by useAgentShapeSync
+  }, [editor, agents, createTask, createAgent])
 
   return (
     <>
@@ -239,108 +239,17 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
               setEditor(newEditor)
               newEditor.user.updateUserPreferences({ colorScheme: 'dark' })
             }}
-          />
-
-          {/* Toolbar */}
-          <div
-            style={{
-              position: 'absolute',
-              top: 16,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 1000,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
+            components={{
+              Toolbar: () => <CustomToolbar onAddTask={handleAddTask} />,
+              ActionsMenu: null,
+              HelpMenu: null,
+              NavigationPanel: null,
+              PageMenu: null,
+              StylePanel: null,
+              DebugMenu: null,
+              DebugPanel: null,
             }}
-          >
-            {/* Add Task button */}
-            <button
-              onClick={handleAddTask}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 16px',
-                background: 'rgba(59, 130, 246, 0.9)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid #3b82f6',
-                borderRadius: 8,
-                color: '#fff',
-                cursor: 'pointer',
-                fontFamily: 'system-ui, sans-serif',
-                fontSize: 12,
-                fontWeight: 500,
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#3b82f6'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.9)'
-              }}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 5v14" />
-                <path d="M5 12h14" />
-              </svg>
-              Add Task
-            </button>
-
-            {/* Roll-up handle */}
-            <button
-              onClick={handleClose}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 16px',
-                background: 'rgba(39, 39, 42, 0.9)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid #3f3f46',
-                borderRadius: 8,
-                color: '#a1a1aa',
-                cursor: 'pointer',
-                fontFamily: 'system-ui, sans-serif',
-                fontSize: 12,
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#3f3f46'
-                e.currentTarget.style.color = '#fff'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(39, 39, 42, 0.9)'
-                e.currentTarget.style.color = '#a1a1aa'
-              }}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 21V3" />
-                <path d="m8 8 4-4 4 4" />
-              </svg>
-              Roll up
-            </button>
-          </div>
+          />
 
         </div>,
         portalContainer

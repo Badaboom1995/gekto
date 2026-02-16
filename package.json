@@ -1,22 +1,22 @@
 {
   "name": "gekto",
   "version": "0.0.1",
+  "private": true,
   "type": "module",
-  "bin": {
-    "gekto": "./gekto.js"
-  },
   "scripts": {
-    "dev": "concurrently -n test,widget,proxy -c blue,green,yellow \"bun --filter test-app dev\" \"bun --filter widget dev\" \"bun --filter gektobot dev\"",
-    "dev:test-app": "bun --filter test-app dev",
-    "dev:widget": "bun --filter widget dev",
-    "dev:proxy": "bun --filter gektobot dev",
-    "preview": "bun run build && concurrently -n test,proxy -c blue,yellow \"bun --filter test-app dev\" \"bun --filter gektobot preview\"",
+    "dev": "concurrently -n test,widget,proxy -c blue,green,yellow \"cd test-app && bun run dev\" \"cd widget && bun run dev\" \"cd server && GEKTO_DEV=1 bun run dev\"",
+    "dev:test-app": "cd test-app && bun run dev",
+    "dev:widget": "cd widget && bun run dev",
+    "dev:proxy": "cd server && GEKTO_DEV=1 bun run dev",
+    "preview": "bun run build && concurrently -n test,proxy -c blue,yellow \"cd test-app && bun run dev\" \"cd server && bun run preview\"",
     "build": "cd widget && npm run build && cd ../server && npm run build",
     "bundle": "bun run build && bun run scripts/bundle.ts"
   },
   "devDependencies": {
-    
     "concurrently": "^9.2.1",
     "esbuild": "^0.27.2"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.0.0"
   }
 }

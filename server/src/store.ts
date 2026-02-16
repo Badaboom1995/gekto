@@ -27,13 +27,9 @@ function createEmptyStore(): StoreData {
 export function initStore(): void {
   const storePath = getStorePath()
 
-  if (fs.existsSync(storePath)) {
-    console.log(`[Store] Found existing store at ${storePath}`)
-  } else {
-    console.log(`[Store] Creating new store at ${storePath}`)
+  if (!fs.existsSync(storePath)) {
     const emptyStore = createEmptyStore()
     fs.writeFileSync(storePath, JSON.stringify(emptyStore, null, 2), 'utf8')
-    console.log(`[Store] Store created successfully`)
   }
 }
 

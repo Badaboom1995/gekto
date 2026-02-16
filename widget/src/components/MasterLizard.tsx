@@ -9,7 +9,6 @@ import { useSwarm } from '../context/SwarmContext'
 import { useAgent } from '../context/AgentContext'
 import { useGekto } from '../context/GektoContext'
 import { useStore } from '../store/store'
-import { openWhiteboard } from './whiteboard'
 
 const MASTER_LIZARD_SIZE = 140
 const MASTER_ID = 'master'
@@ -26,6 +25,8 @@ export function MasterLizard() {
   } = useSwarm()
 
   const storeClearAllAgents = useStore((s) => s.clearAllAgents)
+  const isWhiteboardOpen = useStore((s) => s.isWhiteboardOpen)
+  const setWhiteboardOpen = useStore((s) => s.setWhiteboardOpen)
 
   const { sessions } = useAgent()
   // Subscribe to sessions to trigger re-render on state changes
@@ -56,9 +57,10 @@ export function MasterLizard() {
     {
       id: 'whiteboard',
       icon: <DashboardIcon width={20} height={20} />,
-      label: 'Whiteboard',
+      label: isWhiteboardOpen ? 'Close Board' : 'Whiteboard',
+      active: isWhiteboardOpen,
       onClick: () => {
-        openWhiteboard()
+        setWhiteboardOpen(!isWhiteboardOpen)
       },
     },
     {
@@ -73,7 +75,7 @@ export function MasterLizard() {
     },
   ]
 
-  // Shift+Enter to open master chat and focus input (but not when typing in textarea/input)
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't capture if user is typing in an input or textarea
@@ -81,16 +83,43 @@ export function MasterLizard() {
       if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
         return
       }
+
+      // Shift+Enter to open master chat and focus input
       if (e.shiftKey && e.key === 'Enter') {
         e.preventDefault()
         openChat(MASTER_ID, 'task')
         // Focus input after chat opens
         setTimeout(() => inputRef.current?.focus(), 50)
+        return
+      }
+
+      // Shift+B to toggle whiteboard
+      if (e.shiftKey && (e.key === 'B' || e.key === 'b')) {
+        e.preventDefault()
+        setWhiteboardOpen(!isWhiteboardOpen)
+        return
+      }
+
+      // Shift+ESC to close whiteboard
+      if (e.shiftKey && e.key === 'Escape') {
+        if (isWhiteboardOpen) {
+          e.preventDefault()
+          setWhiteboardOpen(false)
+        }
+        return
+      }
+
+      // ESC to close chat only
+      if (e.key === 'Escape') {
+        if (activeChatId) {
+          e.preventDefault()
+          closeChat()
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [openChat])
+  }, [openChat, activeChatId, closeChat, isWhiteboardOpen, setWhiteboardOpen])
 
   const { ref, position, isDragging, hasMoved, handlers } = useDraggable({
     initialPosition: {

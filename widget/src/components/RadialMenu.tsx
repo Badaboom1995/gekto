@@ -1,4 +1,48 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { SunIcon, MoonIcon } from '@radix-ui/react-icons'
+
+const THEME_STORAGE_KEY = 'gekto-menu-theme'
+
+// Detect if site has light background, with manual override
+function useMenuTheme(): { isLight: boolean; toggle: () => void } {
+  const [manualOverride, setManualOverride] = useState<'light' | 'dark' | null>(() => {
+    try {
+      return localStorage.getItem(THEME_STORAGE_KEY) as 'light' | 'dark' | null
+    } catch {
+      return null
+    }
+  })
+  const [autoDetected, setAutoDetected] = useState(false)
+
+  useEffect(() => {
+    const checkTheme = () => {
+      const bg = getComputedStyle(document.body).backgroundColor
+      const rgb = bg.match(/\d+/g)?.map(Number) || [255, 255, 255]
+      const luminance = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255
+      setAutoDetected(luminance > 0.5)
+    }
+
+    checkTheme()
+    const observer = new MutationObserver(checkTheme)
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] })
+    return () => observer.disconnect()
+  }, [])
+
+  const toggle = () => {
+    const current = manualOverride !== null ? (manualOverride === 'light') : autoDetected
+    const newValue = current ? 'dark' : 'light'
+    setManualOverride(newValue)
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, newValue)
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  const isLight = manualOverride !== null ? (manualOverride === 'light') : autoDetected
+
+  return { isLight, toggle }
+}
 
 interface MenuItem {
   id: string
@@ -7,6 +51,7 @@ interface MenuItem {
   onClick: () => void
   separated?: boolean
   danger?: boolean
+  active?: boolean // highlight when active
   holdDuration?: number // ms to hold before action triggers
 }
 
@@ -28,6 +73,18 @@ export function RadialMenu({
   const [holdProgress, setHoldProgress] = useState(0)
   const holdIdRef = useRef(0)
   const holdAnimationRef = useRef<number | null>(null)
+  const { isLight: isLightTheme, toggle: toggleTheme } = useMenuTheme()
+
+  // Theme-aware colors
+  const colors = useMemo(() => ({
+    cardBg: isLightTheme ? 'rgba(255, 255, 255, 0.7)' : 'rgba(30, 30, 35, 0.6)',
+    cardBorder: isLightTheme ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.15)',
+    cardShadow: isLightTheme ? '0 2px 12px rgba(0, 0, 0, 0.1)' : '0 2px 8px rgba(0, 0, 0, 0.3)',
+    labelColor: isLightTheme ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)',
+    iconColor: isLightTheme ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)',
+    dangerBg: 'rgba(220, 80, 80, 0.4)',
+    dangerBorder: 'rgba(220, 80, 80, 0.3)',
+  }), [isLightTheme])
 
   const cardWidth = 40
   const cardHeight = 48
@@ -125,11 +182,13 @@ export function RadialMenu({
             startHold(item)
           }
         }}
+        
         onMouseUp={() => {
           if (item.holdDuration) {
             cancelHold()
           }
         }}
+
         onClick={(e) => {
           e.stopPropagation()
           e.preventDefault()
@@ -141,8 +200,9 @@ export function RadialMenu({
       >
         {/* Label */}
         <span
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 text-white/70 text-xs whitespace-nowrap"
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 text-xs whitespace-nowrap"
           style={{
+            color: colors.labelColor,
             opacity: isHovered ? 1 : 0,
             transform: isHovered ? 'translateY(0)' : 'translateY(5px)',
             transition: 'opacity 0.15s ease-out, transform 0.15s ease-out',
@@ -157,13 +217,9 @@ export function RadialMenu({
             width: currentWidth,
             height: currentHeight,
             borderRadius: borderRadius,
-            background: item.danger
-              ? 'rgba(220, 80, 80, 0.4)'
-              : 'rgba(30, 30, 35, 0.6)',
-            border: item.danger
-              ? '1px solid rgba(220, 80, 80, 0.3)'
-              : '1px solid rgba(255, 255, 255, 0.15)',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+            background: item.danger ? colors.dangerBg : item.active ? 'rgba(59, 130, 246, 0.3)' : colors.cardBg,
+            border: `1px solid ${item.danger ? colors.dangerBorder : item.active ? 'rgba(59, 130, 246, 0.5)' : colors.cardBorder}`,
+            boxShadow: colors.cardShadow,
             transform: isHovered ? 'scale(1.1)' : 'scale(1)',
           }}
         >
@@ -177,7 +233,7 @@ export function RadialMenu({
               }}
             />
           )}
-          <span className="relative z-10" style={{ fontSize: item.danger ? 16 : 20 }}>
+          <span className="relative z-10" style={{ fontSize: item.danger ? 16 : 20, color: colors.iconColor }}>
             {item.icon}
           </span>
         </div>
@@ -205,6 +261,44 @@ export function RadialMenu({
       }}
     >
       {itemsWithOffsets.map(({ item, index, offset }) => renderItem(item, index, offset))}
+
+      {/* Theme toggle button - positioned above and left of first item */}
+      <div
+        className="absolute pointer-events-auto cursor-pointer"
+        style={{
+          ...(side === 'left' ? { right: -6 } : { left: -18 }),
+          top: -45,
+          width: 34,
+          height: 34,
+          borderRadius: '50%',
+          background: colors.cardBg,
+          border: `1px solid ${colors.cardBorder}`,
+          boxShadow: colors.cardShadow,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 12,
+          opacity: isVisible ? 1 : 0,
+          transform: isVisible ? 'scale(1)' : 'scale(0.8)',
+          transition: 'opacity 0.2s ease-out 0.1s, transform 0.2s ease-out 0.1s, background 0.15s ease-out',
+        }}
+        onClick={(e) => {
+          e.stopPropagation()
+          toggleTheme()
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLElement).style.transform = 'scale(1.15)'
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLElement).style.transform = 'scale(1)'
+        }}
+        title={isLightTheme ? 'Switch to dark' : 'Switch to light'}
+      >
+        {isLightTheme
+          ? <MoonIcon width={16} height={16} style={{ color: colors.iconColor }} />
+          : <SunIcon width={16} height={16} style={{ color: colors.iconColor }} />
+        }
+      </div>
     </div>
   )
 }

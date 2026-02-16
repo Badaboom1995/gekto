@@ -151,25 +151,9 @@ function TaskRow({ task, onMarkResolved, onRetry }: TaskRowProps) {
           </div>
         )}
 
-        {task.files.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
-            {task.files.map((file, i) => (
-              <span
-                key={i}
-                className="text-xs px-1.5 py-0.5 rounded font-mono"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  color: 'rgba(255, 255, 255, 0.7)',
-                }}
-              >
-                {file.split('/').pop()}
-              </span>
-            ))}
-          </div>
-        )}
-        {task.assignedLizardId && (
+        {task.assignedAgentId && (
           <div className="text-xs text-white/40 mt-1">
-            Agent: {task.assignedLizardId}
+            Agent: {task.assignedAgentId}
           </div>
         )}
         {task.error && (
@@ -229,6 +213,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
         zIndex: 1003,
         width: 400,
         maxHeight: 600,
+        pointerEvents: 'auto',
       }}
     >
       <div
@@ -282,16 +267,22 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           </button>
         </div>
 
-        {/* Original prompt */}
-        <div
-          className="px-4 py-2 text-xs text-white/60"
-          style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}
-        >
-          <span className="text-white/40">Prompt: </span>
-          {currentPlan.originalPrompt.length > 100
-            ? currentPlan.originalPrompt.slice(0, 100) + '...'
-            : currentPlan.originalPrompt}
-        </div>
+
+        {/* Gekto's reasoning */}
+        {currentPlan.reasoning && (
+          <div
+            className="px-4 py-3 text-xs"
+            style={{
+              borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+              background: 'rgba(191, 255, 107, 0.05)',
+            }}
+          >
+            <div className="flex items-start gap-2">
+              <span className="text-[#BFFF6B]">💡</span>
+              <span className="text-white/70">{currentPlan.reasoning}</span>
+            </div>
+          </div>
+        )}
 
         {/* Progress bar */}
         {currentPlan.status === 'executing' && (

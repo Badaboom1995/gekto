@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import { CLAUDE_PATH } from '../claudePath.js'
 
 // Simple Gekto - just chat with Haiku and return text response
 
@@ -33,13 +34,9 @@ export async function processSimple(
 ): Promise<SimpleGektoResult> {
   const startTime = Date.now()
 
-  console.log('[GektoSimple] Processing:', prompt.substring(0, 100))
-
   try {
     const rawResponse = await runHaiku(prompt, GEKTO_SYSTEM_PROMPT, workingDir)
     const durationMs = Date.now() - startTime
-    console.log('[GektoSimple] Done in', durationMs, 'ms')
-    console.log('[GektoSimple] Raw response:', rawResponse.substring(0, 200))
 
     // Parse JSON response
     const jsonMatch = rawResponse.match(/\{[\s\S]*\}/)
@@ -60,9 +57,8 @@ export async function processSimple(
       message: rawResponse,
       durationMs,
     }
-  } catch (err) {
+  } catch {
     const durationMs = Date.now() - startTime
-    console.error('[GektoSimple] Error:', err)
 
     // Always return a friendly message, never an error
     return {
@@ -83,14 +79,13 @@ function runHaiku(
     const args = [
       '-p', prompt,
       '--output-format', 'stream-json',
+      '--verbose',
       '--model', 'claude-haiku-4-5-20251001',
       '--system-prompt', systemPrompt,
       '--dangerously-skip-permissions',
     ]
 
-    console.log('[GektoSimple] Calling Haiku...')
-
-    const proc = spawn('claude', args, {
+    const proc = spawn(CLAUDE_PATH, args, {
       cwd: workingDir,
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe'],

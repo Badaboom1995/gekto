@@ -2,8 +2,6 @@ import { useState } from 'react'
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import './App.css'
 import AboutPage from './pages/AboutPage'
-import ArticleDetailPage from './pages/ArticleDetailPage'
-import ArticlesPage from './pages/ArticlesPage'
 import BasketPage from './pages/BasketPage'
 import BlogPage from './pages/BlogPage'
 import BlogDetailPage from './pages/BlogDetailPage'
@@ -92,7 +90,7 @@ function Footer() {
         </div>
       </div>
       <div className="footer-bottom">
-        <p>Copyright © 2024 ClassicPC. All Rights Reserved.</p>
+        <p>Copyright © 2024 RetroPC. All Rights Reserved.</p>
         <div className="footer-links">
           <a href="#">Terms of Service</a>
           <a href="#">Privacy Policy</a>
@@ -110,8 +108,6 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/shop" element={<ShopPage />} />
         <Route path="/product/:id" element={<ProductDetailPage />} />
-        <Route path="/articles" element={<ArticlesPage />} />
-        <Route path="/articles/:slug" element={<ArticleDetailPage />} />
         <Route path="/basket" element={<BasketPage />} />
         <Route path="/blog" element={<BlogPage />} />
         <Route path="/blog/:slug" element={<BlogDetailPage />} />

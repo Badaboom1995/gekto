@@ -11,7 +11,6 @@ const connectedClients = new Set<WebSocket>()
 let gektoInitialized = false
 
 function broadcastGektoState(state: 'loading' | 'ready' | 'error') {
-  console.log(`[Agent] Broadcasting Gekto state: ${state} to ${connectedClients.size} clients`)
   const message = JSON.stringify({ type: 'gekto_state', state })
   for (const client of connectedClients) {
     if (client.readyState === 1) { // WebSocket.OPEN
@@ -48,19 +47,15 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
   })
 
   wss.on('connection', (ws: WebSocket) => {
-    console.log('[Agent] New connection')
-
     // Track connected clients for Gekto state broadcasts
     connectedClients.add(ws)
 
     // Always ensure Gekto is initialized and callback is set
     setStateCallback(broadcastGektoState)
     if (!gektoInitialized) {
-      console.log('[Agent] Initializing Gekto...')
       initGekto(getWorkingDir(), broadcastGektoState)
       gektoInitialized = true
     }
-    console.log('[Agent] Current Gekto state:', getGektoState())
 
     // Attach this WebSocket to all existing sessions (for reconnection)
     attachWebSocket(ws)
@@ -79,7 +74,6 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
         lizardId: session.lizardId,
         state: session.state,
       }))
-      console.log(`[Agent] Sent state sync: ${session.lizardId} = ${session.state}`)
     }
 
     ws.on('message', async (message: Buffer | string) => {
@@ -97,12 +91,6 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
 
           case 'debug_pool':
             const sessions = getActiveSessions()
-            console.log('\n========== AGENT POOL DEBUG ==========')
-            console.log('Active sessions:', sessions.length)
-            sessions.forEach(s => {
-              console.log(`  - ${s.lizardId}: processing=${s.isProcessing}, running=${s.isRunning}, queue=${s.queueLength}`)
-            })
-            console.log('=======================================\n')
             ws.send(JSON.stringify({
               type: 'debug_pool_result',
               sessions,
@@ -124,7 +112,6 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
           case 'create_plan':
             // Mode is passed from client (default: 'plan', can toggle to 'direct')
             const mode: GektoMode = msg.mode || 'plan'
-            console.log('[Agent] Processing Gekto message in', mode, 'mode:', msg.prompt?.substring(0, 50))
 
             // Set master lizard to working state
             ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'working' }))
@@ -163,7 +150,6 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
 
               if (response.mode === 'plan') {
                 // Plan mode - use gektoTools for task breakdown
-                console.log('[Agent] Switching to plan mode')
 
                 // Create callbacks for plan tool streaming
                 const planCallbacks: PlanCallbacks = {
@@ -192,18 +178,17 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
                   msg.planId,
                   getWorkingDir(),
                   getActiveSessions(),
-                  planCallbacks
+                  planCallbacks,
+                  msg.existingPlan  // Pass existing plan for modifications
                 )
 
                 if (planResult.type === 'build' && planResult.plan) {
-                  console.log('[Agent] Plan created with', planResult.plan.tasks.length, 'tasks, sending plan_created')
                   activePlans.set(msg.planId, planResult.plan)
                   ws.send(JSON.stringify({
                     type: 'plan_created',
                     planId: msg.planId,
                     plan: planResult.plan,
                   }))
-                  console.log('[Agent] plan_created sent to client')
                 } else if (planResult.type === 'remove' && planResult.removedAgents) {
                   ws.send(JSON.stringify({
                     type: 'gekto_remove',
@@ -271,7 +256,6 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
 
         switch (msg.type) {
           case 'chat':
-            console.log(`[Agent] [${lizardId}] Processing:`, msg.content.substring(0, 50), '...')
             try {
               await sendMessage(lizardId, msg.content, ws)
             } catch (err) {
@@ -301,7 +285,6 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
     })
 
     ws.on('close', () => {
-      console.log('[Agent] Connection closed')
       connectedClients.delete(ws)
     })
 
@@ -310,6 +293,5 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
     })
   })
 
-  console.log(`[Agent] WebSocket server ready at ${path}`)
   return wss
 }

@@ -1,3 +1,4 @@
+import * as React from 'react'
 import {
   ShapeUtil,
   Rectangle2d,
@@ -19,6 +20,13 @@ let onViewDiffCallback: ((agentId: string) => void) | null = null
 
 export function setOnViewDiff(callback: ((agentId: string) => void) | null) {
   onViewDiffCallback = callback
+}
+
+// Global callback for title changes - set by WhiteboardCurtain
+let onTitleChangeCallback: ((agentId: string, newTitle: string) => void) | null = null
+
+export function setOnTitleChange(callback: ((agentId: string, newTitle: string) => void) | null) {
+  onTitleChangeCallback = callback
 }
 
 // Define the status type for agent activities
@@ -56,6 +64,119 @@ const taskShapeProps = {
 }
 
 const DEFAULT_HEIGHT = 200
+
+// Editable title component with double-click to edit
+function EditableTitle({
+  title,
+  agentId,
+  onOpenChat
+}: {
+  title: string
+  agentId?: string
+  onOpenChat: () => void
+}) {
+  const [isEditing, setIsEditing] = React.useState(false)
+  const [editValue, setEditValue] = React.useState(title)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+
+  React.useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [isEditing])
+
+  // Sync editValue when title prop changes (from external updates)
+  React.useEffect(() => {
+    if (!isEditing) {
+      setEditValue(title)
+    }
+  }, [title, isEditing])
+
+  const handleSave = () => {
+    setIsEditing(false)
+    const trimmed = editValue.trim()
+    if (trimmed && trimmed !== title && agentId && onTitleChangeCallback) {
+      onTitleChangeCallback(agentId, trimmed)
+    } else {
+      setEditValue(title) // Reset if empty or unchanged
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    e.stopPropagation()
+    if (e.key === 'Enter') {
+      handleSave()
+    } else if (e.key === 'Escape') {
+      setEditValue(title)
+      setIsEditing(false)
+    }
+  }
+
+  if (isEditing) {
+    return (
+      <input
+        ref={inputRef}
+        value={editValue}
+        onChange={(e) => setEditValue(e.target.value)}
+        onBlur={handleSave}
+        onKeyDown={handleKeyDown}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          flex: 1,
+          fontSize: 20,
+          fontWeight: 600,
+          color: '#ffffff',
+          background: 'rgba(255,255,255,0.1)',
+          border: '1px solid rgba(255,255,255,0.3)',
+          borderRadius: 4,
+          padding: '2px 6px',
+          outline: 'none',
+          minWidth: 0,
+          fontFamily: 'inherit',
+        }}
+      />
+    )
+  }
+
+  return (
+    <div
+      onPointerDown={(e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        onOpenChat()
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        if (agentId) {
+          setIsEditing(true)
+        }
+      }}
+      style={{
+        flex: 1,
+        fontSize: 20,
+        fontWeight: 600,
+        color: '#ffffff',
+        cursor: agentId ? 'pointer' : 'default',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}
+      onMouseEnter={(e) => {
+        if (agentId) e.currentTarget.style.textDecoration = 'underline'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.textDecoration = 'none'
+      }}
+      title="Click to chat, double-click to edit"
+    >
+      {title || 'Untitled Task'}
+    </div>
+  )
+}
 
 // Inject spinner animation CSS (only once)
 if (typeof document !== 'undefined' && !document.getElementById('task-shape-styles')) {
@@ -139,9 +260,7 @@ export class TaskShapeUtil extends ShapeUtil<any> {
     const isRunning = ['READ', 'WRITE', 'BASH', 'GREP', 'EDIT'].includes(status)
     const hasFileChanges = (fileChangeCount ?? 0) > 0
 
-    const handleTitleClick = (e: React.PointerEvent) => {
-      e.stopPropagation()
-      e.preventDefault()
+    const handleOpenChat = () => {
       if (agentId && onOpenChatCallback) {
         onOpenChatCallback(agentId)
       }
@@ -187,29 +306,12 @@ export class TaskShapeUtil extends ShapeUtil<any> {
               borderBottom: branch ? 'none' : `1px solid ${BASE_COLORS.border}`,
             }}
           >
-            {/* Title - clickable to open chat */}
-            <div
-              onPointerDown={handleTitleClick}
-              style={{
-                flex: 1,
-                fontSize: 20,
-                fontWeight: 600,
-                color: '#ffffff',
-                cursor: agentId ? 'pointer' : 'default',
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-              onMouseEnter={(e) => {
-                if (agentId) e.currentTarget.style.textDecoration = 'underline'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.textDecoration = 'none'
-              }}
-            >
-              {title || 'Untitled Task'}
-            </div>
+            {/* Title - clickable to open chat, double-click to edit */}
+            <EditableTitle
+              title={title}
+              agentId={agentId}
+              onOpenChat={handleOpenChat}
+            />
 
             {/* Status Badge - hidden when idle */}
             {status !== 'idle' && (

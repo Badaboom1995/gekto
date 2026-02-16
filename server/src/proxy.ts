@@ -308,6 +308,32 @@ async function main() {
       return
     }
 
+    // API: Get global store (Zustand persistence)
+    if (url === '/__gekto/api/store' && req.method === 'GET') {
+      const store = getData<Record<string, unknown>>('store') || {}
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ state: store, version: 0 }))
+      return
+    }
+
+    // API: Save global store (Zustand persistence)
+    if (url === '/__gekto/api/store' && req.method === 'POST') {
+      let body = ''
+      req.on('data', (chunk: Buffer) => { body += chunk })
+      req.on('end', () => {
+        try {
+          const store = JSON.parse(body)
+          setData('store', store)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: true }))
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Invalid JSON' }))
+        }
+      })
+      return
+    }
+
     // API: Get chat history
     const chatGetMatch = url.match(/^\/__gekto\/api\/chats\/([^/]+)$/)
     if (chatGetMatch && req.method === 'GET') {
