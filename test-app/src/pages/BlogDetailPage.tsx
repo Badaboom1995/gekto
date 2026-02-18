@@ -429,7 +429,7 @@ const defaultPost: BlogPost = {
   title: 'Post Not Found',
   excerpt: 'The requested blog post could not be found.',
   content: 'The blog post you are looking for does not exist or has been moved. Please check the URL or browse our other posts.',
-  author: 'RetroPC Team',
+  author: 'ClassicPC Team',
   authorBio: '',
   date: '',
   readingTime: '',

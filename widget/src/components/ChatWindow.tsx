@@ -81,7 +81,7 @@ export function ChatWindow({
     killAgent,
   } = useAgent()
 
-  const { createPlan, currentPlan, openPlanPanel, directMode, setDirectMode, markTaskInProgress } = useGekto()
+  const { createPlan, currentPlan, openPlanPanel, markTaskInProgress } = useGekto()
 
   // Get agent/task names from global store
   const agents = useStore((s) => s.agents)
@@ -479,22 +479,6 @@ export function ChatWindow({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {/* Direct Mode Toggle - only for master */}
-          {isMaster && (
-            <button
-              onClick={() => setDirectMode(!directMode)}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-all"
-              style={{
-                background: directMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255, 255, 255, 0.1)',
-                color: directMode ? 'rgb(147, 197, 253)' : 'rgba(255, 255, 255, 0.5)',
-                border: directMode ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-              title={directMode ? 'Direct mode: Gekto works directly without creating plans' : 'Plan mode: Gekto creates plans with worker agents'}
-            >
-              <LightningBoltIcon width={12} height={12} />
-              <span>{directMode ? 'Direct' : 'Plan'}</span>
-            </button>
-          )}
           {hasActivePlan && (
             <button
               onClick={openPlanPanel}

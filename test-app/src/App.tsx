@@ -25,7 +25,7 @@ function Header() {
       <div className="header-content">
         <Link to="/" className="logo">
           <span className="logo-icon">⌨</span>
-          <span className="logo-text">RetroPC</span>
+          <span className="logo-text">ClassicPC</span>
         </Link>
         <nav className="nav">
           <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>Home</Link>
@@ -91,7 +91,7 @@ function Footer() {
         </div>
       </div>
       <div className="footer-bottom">
-        <p>Copyright © 2024 RetroPC. All Rights Reserved.</p>
+        <p>Copyright © 2024 ClassicPC. All Rights Reserved.</p>
         <div className="footer-links">
           <a href="#">Terms of Service</a>
           <a href="#">Privacy Policy</a>

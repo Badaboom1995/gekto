@@ -209,7 +209,7 @@ function HomePage() {
       {/* Hero Section */}
       <section className="home-hero">
         <div className="home-hero-content">
-          <span className="home-hero-badge">Welcome to RetroPC</span>
+          <span className="home-hero-badge">Welcome to ClassicPC</span>
           <h1 className="home-hero-title">
             Discover the<br />
             <span className="highlight">Golden Era</span><br />
@@ -443,7 +443,7 @@ function HomePage() {
             <span className="bio-label">Our Story</span>
             <h2 className="bio-title">Preserving Computing History, One Machine at a Time</h2>
             <p className="bio-description">
-              Founded in 2009 by a group of passionate collectors and engineers, RetroPC began
+              Founded in 2009 by a group of passionate collectors and engineers, ClassicPC began
               in a small garage filled with dusty Commodore 64s and Apple IIs. What started as
               a hobby quickly evolved into a mission: to rescue, restore, and rehome the machines
               that shaped our digital world.
@@ -525,7 +525,7 @@ function HomePage() {
       <section className="home-cta">
         <div className="cta-content">
           <h2>Ready to own a piece of computing history?</h2>
-          <p>Join thousands of collectors and enthusiasts who trust RetroPC for authentic vintage computers.</p>
+          <p>Join thousands of collectors and enthusiasts who trust ClassicPC for authentic vintage computers.</p>
           <div className="cta-actions">
             <Link to="/shop" className="btn btn-primary btn-large">
               Start Exploring

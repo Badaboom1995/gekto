@@ -210,6 +210,7 @@ async function main() {
 
   // === STEP 2: Now load all the heavy modules ===
   const http = await import('http')
+  const https = await import('https')
   const fs = await import('fs')
   const path = await import('path')
   const { fileURLToPath } = await import('url')
@@ -364,6 +365,90 @@ async function main() {
           res.end(JSON.stringify({ error: 'Invalid JSON' }))
         }
       })
+      return
+    }
+
+    // Iframe proxy: strip X-Frame-Options and CSP so any site can load in an iframe
+    if (url.startsWith('/__gekto/iframe-proxy/')) {
+      const targetUrl = url.replace('/__gekto/iframe-proxy/', '')
+      if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Missing or invalid target URL. Use /__gekto/iframe-proxy/https://example.com' }))
+        return
+      }
+
+      const parsedUrl = new URL(targetUrl)
+      const transport = parsedUrl.protocol === 'https:' ? https : http
+
+      const proxyReq = transport.request(
+        targetUrl,
+        {
+          method: req.method,
+          headers: {
+            ...req.headers,
+            host: parsedUrl.host,
+            referer: targetUrl,
+            origin: parsedUrl.origin,
+            'accept-encoding': 'identity',
+          },
+        },
+        (proxyRes) => {
+          // Strip headers that block iframe embedding
+          const headers: Record<string, string | string[] | undefined> = {}
+          const stripHeaders = [
+            'x-frame-options',
+            'content-security-policy',
+            'content-security-policy-report-only',
+          ]
+          for (const [key, value] of Object.entries(proxyRes.headers)) {
+            if (!stripHeaders.includes(key.toLowerCase())) {
+              headers[key] = value
+            }
+          }
+
+          // Handle redirects — rewrite through our proxy
+          if (proxyRes.statusCode && proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+            const redirectUrl = new URL(proxyRes.headers.location, targetUrl).href
+            headers['location'] = `/__gekto/iframe-proxy/${redirectUrl}`
+          }
+
+          // For HTML responses, rewrite relative URLs to go through proxy
+          const contentType = (proxyRes.headers['content-type'] || '') as string
+          if (contentType.includes('text/html')) {
+            const chunks: Buffer[] = []
+            proxyRes.on('data', (chunk) => chunks.push(chunk))
+            proxyRes.on('end', () => {
+              let html = Buffer.concat(chunks).toString('utf8')
+
+              // Inject a <base> tag so relative URLs resolve to the original site
+              const baseTag = `<base href="${parsedUrl.origin}/">`
+              if (html.includes('<head>')) {
+                html = html.replace('<head>', `<head>${baseTag}`)
+              } else if (html.includes('<HEAD>')) {
+                html = html.replace('<HEAD>', `<HEAD>${baseTag}`)
+              } else {
+                html = baseTag + html
+              }
+
+              delete headers['content-length']
+              delete headers['content-encoding']
+              delete headers['transfer-encoding']
+              res.writeHead(proxyRes.statusCode || 200, headers)
+              res.end(html)
+            })
+          } else {
+            res.writeHead(proxyRes.statusCode || 200, headers)
+            proxyRes.pipe(res)
+          }
+        }
+      )
+
+      proxyReq.on('error', (err) => {
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `Proxy error: ${err.message}` }))
+      })
+
+      req.pipe(proxyReq)
       return
     }
 
