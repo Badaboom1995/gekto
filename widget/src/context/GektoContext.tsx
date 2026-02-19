@@ -98,6 +98,9 @@ interface GektoProviderProps {
 
 const PLAN_STORAGE_KEY = 'gekto-current-plan'
 
+// Accumulator for streaming text deltas from Gekto during planning
+let gektoStreamingText = ''
+
 // Load plan from localStorage
 function loadPlanFromStorage(): ExecutionPlan | null {
   try {
@@ -408,10 +411,25 @@ export function GektoProvider({ children }: GektoProviderProps) {
   }) => {
     switch (msg.type) {
       case 'gekto_text':
-        // Streaming text from Gekto (optional - could be used for live updates)
+        // Accumulate streaming text deltas and forward to master chat
+        if (msg.text) {
+          gektoStreamingText += msg.text
+          const listener = (window as unknown as { __agentMessageListeners?: Map<string, (message: { id: string; text: string; sender: 'bot'; timestamp: Date; isStreaming?: boolean }) => void> }).__agentMessageListeners?.get('master')
+          if (listener) {
+            listener({
+              id: 'gekto_streaming',
+              text: gektoStreamingText,
+              sender: 'bot',
+              timestamp: new Date(),
+              isStreaming: true,
+            })
+          }
+        }
         break
 
       case 'gekto_chat':
+        // Reset streaming accumulator — planning phase is done
+        gektoStreamingText = ''
         // Add the response to chat via the message listener system
         if (msg.message) {
           const listener = (window as unknown as { __agentMessageListeners?: Map<string, (message: { id: string; text: string; sender: 'bot'; timestamp: Date }) => void> }).__agentMessageListeners?.get('master')
@@ -446,6 +464,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
         break
 
       case 'plan_created':
+        gektoStreamingText = ''
         if (msg.plan) {
           // Normalize plan structure to match Test button format exactly
           const plan = msg.plan!

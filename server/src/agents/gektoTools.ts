@@ -106,7 +106,8 @@ export async function processWithTools(
   workingDir: string,
   activeAgents: { lizardId: string; isProcessing: boolean; queueLength: number }[] = [],
   callbacks?: PlanCallbacks,
-  existingPlan?: ExistingPlanContext
+  existingPlan?: ExistingPlanContext,
+  sessionId?: string
 ): Promise<GektoToolResult> {
   // Build context prompt with active agents and existing plan
   let contextPrompt = prompt
@@ -136,7 +137,7 @@ The user's message above is a modification request. You can:
 If modifying, output ALL tasks (existing + changes) in your build response.]`
   }
 
-  const result = await runClaudeOnce(contextPrompt, GEKTO_SYSTEM_PROMPT, workingDir, callbacks)
+  const result = await runClaudeOnce(contextPrompt, GEKTO_SYSTEM_PROMPT, workingDir, callbacks, sessionId)
 
   // Parse the JSON response
   try {
@@ -268,7 +269,8 @@ function runClaudeOnce(
   prompt: string,
   systemPrompt: string,
   workingDir: string,
-  callbacks?: PlanCallbacks
+  callbacks?: PlanCallbacks,
+  sessionId?: string
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [
@@ -279,6 +281,10 @@ function runClaudeOnce(
       '--system-prompt', systemPrompt,
       '--dangerously-skip-permissions',
     ]
+
+    if (sessionId) {
+      args.push('--resume', sessionId)
+    }
 
     console.log(`[Gekto] Spawning: "${CLAUDE_PATH}" with ${args.length} args`)
     console.log(`[Gekto] First 3 args:`, args.slice(0, 3))

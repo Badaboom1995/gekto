@@ -53,6 +53,7 @@ interface MenuItem {
   danger?: boolean
   active?: boolean // highlight when active
   holdDuration?: number // ms to hold before action triggers
+  hotkey?: string // keyboard shortcut label e.g. "⇧C"
 }
 
 interface RadialMenuProps {
@@ -200,15 +201,19 @@ export function RadialMenu({
       >
         {/* Label */}
         <span
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 text-xs whitespace-nowrap"
+          className="absolute bottom-full mb-2 text-xs whitespace-nowrap"
           style={{
             color: colors.labelColor,
             opacity: isHovered ? 1 : 0,
             transform: isHovered ? 'translateY(0)' : 'translateY(5px)',
             transition: 'opacity 0.15s ease-out, transform 0.15s ease-out',
+            ...(side === 'left' ? { right: 0 } : { left: 0 }),
           }}
         >
           {isHolding ? 'Hold...' : item.label}
+          {!isHolding && item.hotkey && (
+            <span style={{ opacity: 0.4, marginLeft: 6 }}>{item.hotkey}</span>
+          )}
         </span>
         {/* Card */}
         <div
@@ -262,12 +267,12 @@ export function RadialMenu({
     >
       {itemsWithOffsets.map(({ item, index, offset }) => renderItem(item, index, offset))}
 
-      {/* Theme toggle button - positioned above and left of first item */}
+      {/* Theme toggle button - positioned below and mirrored */}
       <div
         className="absolute pointer-events-auto cursor-pointer"
         style={{
           ...(side === 'left' ? { right: -6 } : { left: -18 }),
-          top: -45,
+          bottom: -45,
           width: 34,
           height: 34,
           borderRadius: '50%',

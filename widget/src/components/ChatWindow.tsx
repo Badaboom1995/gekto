@@ -9,6 +9,20 @@ import { useStore } from '../store/store'
 const MASTER_ID = 'master'
 const CHAT_SIZE_KEY = 'gekto-chat-size'
 
+const AGENT_PHRASES = [
+  'Hacking...',
+  'Swarming...',
+  'Gektoing...',
+  'Crawling...',
+  'Shedding...',
+  'Scaling...',
+  'Slithering...',
+  'Chomping...',
+  'Molting...',
+  'Debugging...',
+  'Spawning...',
+]
+
 const PLANNING_PHRASES = [
   'Creating plan...',
   'Researching...',
@@ -115,10 +129,28 @@ export function ChatWindow({
       return
     }
     const interval = setInterval(() => {
-      setPlanningPhraseIndex(i => (i + 1) % PLANNING_PHRASES.length)
+      setPlanningPhraseIndex(() => {
+        // Random index from 1 onwards (skip first phrase which is the initial one)
+        return 1 + Math.floor(Math.random() * (PLANNING_PHRASES.length - 1))
+      })
     }, 3000)
     return () => clearInterval(interval)
   }, [isMasterWorking])
+
+  // Rotating phrases for regular agents
+  const [agentPhraseIndex, setAgentPhraseIndex] = useState(0)
+  const isAgentWorking = !isMaster && (sessions.get(lizardId)?.state ?? getLizardState(lizardId)) === 'working'
+
+  useEffect(() => {
+    if (!isAgentWorking) {
+      setAgentPhraseIndex(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setAgentPhraseIndex(() => Math.floor(Math.random() * AGENT_PHRASES.length))
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [isAgentWorking])
 
   // Subscribe to sessions to trigger re-render on state changes
   const agentState = sessions.get(lizardId)?.state ?? getLizardState(lizardId)
@@ -386,6 +418,9 @@ export function ChatWindow({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      if (onClose) onClose()
     } else if (e.key === 'Enter' && e.shiftKey) {
       // Manually insert newline and resize
       e.preventDefault()
@@ -449,7 +484,7 @@ export function ChatWindow({
       return `${toolName}${input}`
     }
     switch (agentState) {
-      case 'working': return isMaster ? PLANNING_PHRASES[planningPhraseIndex] : 'Thinking...'
+      case 'working': return isMaster ? PLANNING_PHRASES[planningPhraseIndex] : AGENT_PHRASES[agentPhraseIndex]
       case 'queued': return `Queued (position ${queuePosition})`
       case 'error': return 'Connection error'
       default: return ''
@@ -506,7 +541,7 @@ export function ChatWindow({
           <div className="flex items-baseline gap-2">
             <span className="text-white font-medium text-sm">{title}</span>
             <span className="text-xs text-white/30">
-              {isGektoLoading ? 'preparing gekto' : agentState === 'working' ? 'working' : agentState === 'queued' ? 'queued' : agentState === 'error' ? 'error' : 'ready'}
+              {isGektoLoading ? 'Preparing' : agentState === 'working' ? 'working' : agentState === 'queued' ? 'queued' : agentState === 'error' ? 'error' : ''}
             </span>
           </div>
         </div>
@@ -613,7 +648,7 @@ export function ChatWindow({
             ) : (
               /* Regular message */
               <div
-                className="max-w-[90%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap"
+                className={`max-w-[90%] px-3 py-2 text-sm whitespace-pre-wrap ${message.sender === 'user' ? 'rounded-lg rounded-br-none rounded-bl-2xl' : 'rounded-xl'}`}
                 style={{
                   background: message.isTerminal
                     ? 'rgba(34, 197, 94, 0.15)'
@@ -624,7 +659,7 @@ export function ChatWindow({
                   border: message.isTerminal
                     ? '1px solid rgba(34, 197, 94, 0.3)'
                     : message.sender === 'user'
-                      ? '1px solid rgba(255, 255, 255, 0.1)'
+                      ? '1px solid rgba(134, 239, 172, 0.08)'
                       : 'none',
                   padding: message.sender === 'bot' && !message.isTerminal ? '0' : undefined,
                 }}
@@ -723,13 +758,7 @@ export function ChatWindow({
             <div className="flex items-center gap-2 py-1">
               <span style={{ color: '#4ade80', fontSize: '8px', animation: 'blink-triangle 1.2s ease-in-out infinite' }}>◆</span>
               <span className="tool-call-text font-mono text-xs">
-                {isMaster ? PLANNING_PHRASES[planningPhraseIndex] : (
-                  <span className="inline-flex gap-1">
-                    <span className="animate-bounce">.</span>
-                    <span className="animate-bounce" style={{ animationDelay: '0.1s' }}>.</span>
-                    <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>.</span>
-                  </span>
-                )}
+                {isMaster ? PLANNING_PHRASES[planningPhraseIndex] : AGENT_PHRASES[agentPhraseIndex]}
               </span>
             </div>
           </div>
@@ -832,13 +861,13 @@ export function ChatWindow({
                 <button
                   onClick={handleSend}
                   disabled={agentState === 'error'}
-                  className="p-1.5 rounded-full text-white/50 hover:text-white transition-colors disabled:opacity-50 focus:outline-none"
+                  className="px-1.5 py-1 rounded-full text-white/50 hover:text-white transition-colors disabled:opacity-50 focus:outline-none"
                   style={{
                     background: 'rgba(255, 255, 255, 0.1)',
                     border: '1px solid rgba(255, 255, 255, 0.15)',
                   }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 19V5M5 12l7-7 7 7" />
                   </svg>
                 </button>

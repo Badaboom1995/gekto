@@ -44,12 +44,14 @@ export function MasterLizard() {
       id: 'chat',
       icon: <ChatBubbleIcon width={20} height={20} />,
       label: 'Chat',
+      hotkey: '⇧C',
       onClick: () => openChat(MASTER_ID, 'task'),
     },
     {
       id: 'spawn',
       icon: <PlusCircledIcon width={20} height={20} />,
       label: 'Spawn Agent',
+      hotkey: '⇧S',
       onClick: () => {
         addAgent()
       },
@@ -58,6 +60,7 @@ export function MasterLizard() {
       id: 'whiteboard',
       icon: <DashboardIcon width={20} height={20} />,
       label: isWhiteboardOpen ? 'Close Board' : 'Whiteboard',
+      hotkey: '⇧B',
       active: isWhiteboardOpen,
       onClick: () => {
         setWhiteboardOpen(!isWhiteboardOpen)
@@ -84,12 +87,19 @@ export function MasterLizard() {
         return
       }
 
-      // Shift+Enter to open master chat and focus input
-      if (e.shiftKey && e.key === 'Enter') {
+      // Shift+C or Shift+Enter to open master chat and focus input
+      if (e.shiftKey && (e.key === 'C' || e.key === 'c' || e.key === 'Enter')) {
         e.preventDefault()
         openChat(MASTER_ID, 'task')
         // Focus input after chat opens
         setTimeout(() => inputRef.current?.focus(), 50)
+        return
+      }
+
+      // Shift+S to spawn agent
+      if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
+        e.preventDefault()
+        addAgent()
         return
       }
 
@@ -119,7 +129,7 @@ export function MasterLizard() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [openChat, activeChatId, closeChat, isWhiteboardOpen, setWhiteboardOpen])
+  }, [openChat, activeChatId, closeChat, isWhiteboardOpen, setWhiteboardOpen, addAgent])
 
   const { ref, position, isDragging, hasMoved, handlers } = useDraggable({
     initialPosition: {
