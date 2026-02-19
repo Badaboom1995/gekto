@@ -9,6 +9,17 @@ import { useStore } from '../store/store'
 const MASTER_ID = 'master'
 const CHAT_SIZE_KEY = 'gekto-chat-size'
 
+const PLANNING_PHRASES = [
+  'Creating plan...',
+  'Researching...',
+  'Analyzing codebase...',
+  'Measuring complexity...',
+  'Gektoing...',
+  'Splitting into tasks...',
+  'Thinking hard...',
+  'Cooking up a plan...',
+]
+
 // Default chat size
 const DEFAULT_CHAT_SIZE = { width: 400, height: 500 }
 
@@ -81,7 +92,7 @@ export function ChatWindow({
     killAgent,
   } = useAgent()
 
-  const { createPlan, currentPlan, openPlanPanel, markTaskInProgress } = useGekto()
+  const { createPlan, currentPlan, openPlanPanel, cancelPlan, markTaskInProgress } = useGekto()
 
   // Get agent/task names from global store
   const agents = useStore((s) => s.agents)
@@ -94,6 +105,21 @@ export function ChatWindow({
   const hasActivePlan = isMaster && currentPlan && currentPlan.status !== 'completed' && currentPlan.status !== 'failed'
   const isGektoLoading = isMaster && gektoState === 'loading'
 
+  // Rotating planning phrases for master
+  const [planningPhraseIndex, setPlanningPhraseIndex] = useState(0)
+  const isMasterWorking = isMaster && (sessions.get(lizardId)?.state ?? getLizardState(lizardId)) === 'working'
+
+  useEffect(() => {
+    if (!isMasterWorking) {
+      setPlanningPhraseIndex(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setPlanningPhraseIndex(i => (i + 1) % PLANNING_PHRASES.length)
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [isMasterWorking])
+
   // Subscribe to sessions to trigger re-render on state changes
   const agentState = sessions.get(lizardId)?.state ?? getLizardState(lizardId)
   const currentTool = getCurrentTool(lizardId)
@@ -102,8 +128,22 @@ export function ChatWindow({
   const workingDir = getWorkingDir()
 
   // Handle incoming messages from agent (name extraction is done in AgentContext)
-  const handleAgentMessage = useCallback((message: Message) => {
-    setMessages(prev => [...prev, message])
+  const handleAgentMessage = useCallback((message: Message & { isStreaming?: boolean }) => {
+    if (message.isStreaming) {
+      // Streaming message: replace existing streaming entry or append
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === message.id)
+        if (idx >= 0) {
+          const updated = [...prev]
+          updated[idx] = message
+          return updated
+        }
+        return [...prev, message]
+      })
+    } else {
+      // Final message: remove any streaming placeholder, then append
+      setMessages(prev => [...prev.filter(m => m.id !== 'gekto_streaming'), message])
+    }
   }, [])
 
   // Register as message listener
@@ -201,14 +241,14 @@ export function ChatWindow({
     }).catch(err => console.error('[Chat] Failed to save history:', err))
   }, [messages, lizardId, historyLoaded, agent?.taskId])
 
-  // Auto-scroll to bottom on new messages (instant on initial load, smooth after)
+  // Auto-scroll to bottom on new messages or state changes (instant on initial load, smooth after)
   const hasScrolledInitially = useRef(false)
   useEffect(() => {
     if (!historyLoaded) return
     const behavior = hasScrolledInitially.current ? 'smooth' : 'instant'
     messagesEndRef.current?.scrollIntoView({ behavior })
     hasScrolledInitially.current = true
-  }, [messages, historyLoaded])
+  }, [messages, historyLoaded, agentState])
 
   // Resize handlers
   const handleResizeStart = (direction: ResizeDirection) => (e: React.MouseEvent) => {
@@ -409,7 +449,7 @@ export function ChatWindow({
       return `${toolName}${input}`
     }
     switch (agentState) {
-      case 'working': return 'Thinking...'
+      case 'working': return isMaster ? PLANNING_PHRASES[planningPhraseIndex] : 'Thinking...'
       case 'queued': return `Queued (position ${queuePosition})`
       case 'error': return 'Connection error'
       default: return ''
@@ -447,7 +487,7 @@ export function ChatWindow({
         backdropFilter: 'blur(12px) saturate(180%)',
         WebkitBackdropFilter: 'blur(12px) saturate(180%)',
         border: '1px solid rgba(255, 255, 255, 0.18)',
-        borderRadius: '16px',
+        borderRadius: '8px',
         boxShadow: `
           0 8px 32px 0 rgba(31, 38, 135, 0.37),
           inset 0 1px 0 0 rgba(255, 255, 255, 0.3),
@@ -463,37 +503,14 @@ export function ChatWindow({
         }}
       >
         <div className="flex flex-col">
-          <div className="flex items-center gap-2">
+          <div className="flex items-baseline gap-2">
             <span className="text-white font-medium text-sm">{title}</span>
-            {isGektoLoading ? (
-              <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-            ) : agentState === 'working' ? (
-              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-            ) : agentState === 'queued' ? (
-              <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-            ) : agentState === 'error' ? (
-              <div className="w-2 h-2 rounded-full bg-red-400" />
-            ) : (
-              <div className="w-2 h-2 rounded-full bg-green-400" />
-            )}
+            <span className="text-xs text-white/30">
+              {isGektoLoading ? 'preparing gekto' : agentState === 'working' ? 'working' : agentState === 'queued' ? 'queued' : agentState === 'error' ? 'error' : 'ready'}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {hasActivePlan && (
-            <button
-              onClick={openPlanPanel}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-all hover:bg-white/20 hover:border-white/30"
-              style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                color: 'rgba(255, 255, 255, 0.7)',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-              }}
-              title="View active plan"
-            >
-              <FileTextIcon width={12} height={12} />
-              <span>Plan</span>
-            </button>
-          )}
           <button
             onClick={handleClearChat}
             className="text-white/40 hover:text-white/70 transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
@@ -517,86 +534,99 @@ export function ChatWindow({
         className="chat-messages flex-1 p-4 space-y-3"
         style={{ minHeight: 0, overflowY: 'auto' }}
       >
-        {messages.map(message => (
+        {(() => {
+          // Group consecutive tool messages by tool name
+          const grouped: { type: 'message', message: typeof messages[0] }[] | { type: 'tool-group', tool: string, count: number, ids: string[], messages: typeof messages }[] = []
+          const result: Array<{ type: 'message', message: typeof messages[0] } | { type: 'tool-group', tool: string, count: number, ids: string[], messages: typeof messages }> = []
+          for (const msg of messages) {
+            if (msg.toolUse) {
+              const last = result[result.length - 1]
+              if (last && last.type === 'tool-group' && last.tool === msg.toolUse.tool) {
+                last.count++
+                last.ids.push(msg.id)
+                last.messages.push(msg)
+              } else {
+                result.push({ type: 'tool-group', tool: msg.toolUse.tool, count: 1, ids: [msg.id], messages: [msg] })
+              }
+            } else {
+              result.push({ type: 'message', message: msg })
+            }
+          }
+          return result.map((item, idx) => {
+            if (item.type === 'tool-group') {
+              const toolLabel = item.count > 1 ? `${item.tool} ×${item.count}` : item.tool
+              const groupId = item.ids[0]
+              const isLast = idx === result.length - 1
+              const isRunning = isLast && agentState === 'working' && !!currentTool && currentTool.tool === item.tool
+              return (
+                <div key={groupId} className="flex justify-start">
+                  <div
+                    className="max-w-[90%] text-sm cursor-pointer transition-all"
+                    onClick={() => toggleToolExpanded(groupId)}
+                  >
+                    <div className="flex items-center gap-2 py-1">
+                      <span
+                        style={{
+                          color: '#4ade80',
+                          fontSize: '8px',
+                          animation: isRunning ? 'blink-triangle 1.2s ease-in-out infinite' : 'none',
+                        }}
+                      >
+                        ◆
+                      </span>
+                      <span className={`${isRunning ? 'tool-call-text' : ''} font-mono text-xs`} style={!isRunning ? { color: 'rgba(255, 255, 255, 0.5)' } : undefined}>{toolLabel}</span>
+                      <span className="text-white/30 text-xs ml-auto">
+                        {expandedTools.has(groupId) ? '▼' : '▶'}
+                      </span>
+                    </div>
+                    {expandedTools.has(groupId) && (
+                      <div
+                        className="px-3 py-2 font-mono text-xs text-white/70 overflow-auto rounded-lg ml-4 space-y-1"
+                        style={{
+                          maxHeight: 200,
+                          background: 'rgba(0, 0, 0, 0.2)',
+                        }}
+                      >
+                        {item.messages.map(m => (
+                          <pre key={m.id} className="whitespace-pre-wrap break-all">
+                            {m.toolUse?.fullInput ? formatToolInput(m.toolUse.fullInput) : m.toolUse?.input || m.toolUse?.tool}
+                          </pre>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            }
+            const message = item.message
+            return (
           <div
             key={message.id}
             className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            {/* System message - right aligned pill */}
+            {/* System message */}
             {message.sender === 'system' ? (
-              <div
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
-                style={{
-                  background: message.systemData?.mode === 'plan'
-                    ? 'rgba(168, 85, 247, 0.15)'
-                    : 'rgba(59, 130, 246, 0.15)',
-                  border: message.systemData?.mode === 'plan'
-                    ? '1px solid rgba(168, 85, 247, 0.3)'
-                    : '1px solid rgba(59, 130, 246, 0.3)',
-                  color: message.systemData?.mode === 'plan'
-                    ? 'rgb(192, 132, 252)'
-                    : 'rgb(147, 197, 253)',
-                }}
-              >
-                {message.systemData?.mode === 'plan' ? (
-                  <FileTextIcon width={12} height={12} />
-                ) : (
-                  <LightningBoltIcon width={12} height={12} />
-                )}
-                <span>{message.text}</span>
-              </div>
-            ) : message.toolUse ? (
-              /* Tool use message */
-              <div
-                className="max-w-[90%] rounded-lg text-sm cursor-pointer transition-all"
-                style={{
-                  background: 'rgba(234, 179, 8, 0.1)',
-                  border: '1px solid rgba(234, 179, 8, 0.2)',
-                }}
-                onClick={() => message.toolUse?.fullInput && toggleToolExpanded(message.id)}
-              >
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <span className="text-yellow-400">🔧</span>
-                  <span className="font-mono text-xs text-yellow-400">{message.toolUse.tool}</span>
-                  {message.toolUse.input && (
-                    <span className="text-white/50 text-xs truncate max-w-[200px]">
-                      {message.toolUse.input}
-                    </span>
-                  )}
-                  {message.toolUse.fullInput && (
-                    <span className="text-white/30 text-xs ml-auto">
-                      {expandedTools.has(message.id) ? '▼' : '▶'}
-                    </span>
-                  )}
-                </div>
-                {/* Expanded details */}
-                {expandedTools.has(message.id) && message.toolUse.fullInput && (
-                  <div
-                    className="px-3 py-2 font-mono text-xs text-white/70 overflow-auto"
-                    style={{
-                      borderTop: '1px solid rgba(234, 179, 8, 0.15)',
-                      maxHeight: 200,
-                      background: 'rgba(0, 0, 0, 0.2)',
-                    }}
-                  >
-                    <pre className="whitespace-pre-wrap break-all">
-                      {formatToolInput(message.toolUse.fullInput)}
-                    </pre>
-                  </div>
-                )}
+              <div className="flex items-center gap-2 py-1">
+                <span style={{ color: '#4ade80', fontSize: '8px' }}>◆</span>
+                <span className="font-mono text-xs" style={{ color: 'rgba(134, 239, 172, 0.6)' }}>{message.text}</span>
               </div>
             ) : (
               /* Regular message */
               <div
-                className="max-w-[80%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap"
+                className="max-w-[90%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap"
                 style={{
                   background: message.isTerminal
                     ? 'rgba(34, 197, 94, 0.15)'
                     : message.sender === 'user'
-                      ? 'rgba(99, 102, 241, 0.6)'
-                      : 'rgba(255, 255, 255, 0.1)',
-                  color: 'white',
-                  border: message.isTerminal ? '1px solid rgba(34, 197, 94, 0.3)' : 'none',
+                      ? 'rgba(255, 255, 255, 0.08)'
+                      : 'transparent',
+                  color: message.sender === 'user' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.8)',
+                  border: message.isTerminal
+                    ? '1px solid rgba(34, 197, 94, 0.3)'
+                    : message.sender === 'user'
+                      ? '1px solid rgba(255, 255, 255, 0.1)'
+                      : 'none',
+                  padding: message.sender === 'bot' && !message.isTerminal ? '0' : undefined,
                 }}
               >
                 {message.isTerminal && message.sender === 'bot' && (
@@ -609,19 +639,19 @@ export function ChatWindow({
                   <Markdown
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      p: ({ children }) => <p className="mb-1 last:mb-0 leading-tight">{children}</p>,
                       code: ({ className, children }) => {
                         const isInline = !className
                         return isInline ? (
                           <code className="bg-white/10 px-1 py-0.5 rounded text-sm">{children}</code>
                         ) : (
-                          <code className="block bg-black/30 p-2 rounded text-xs overflow-x-auto my-2">{children}</code>
+                          <code className="block bg-black/30 p-2 rounded text-xs overflow-x-auto my-1">{children}</code>
                         )
                       },
                       pre: ({ children }) => <pre className="overflow-x-auto">{children}</pre>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2">{children}</ol>,
-                      li: ({ children }) => <li className="mb-1">{children}</li>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-1">{children}</ol>,
+                      li: ({ children }) => <li className="leading-tight">{children}</li>,
                       a: ({ href, children }) => (
                         <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
                           {children}
@@ -629,9 +659,9 @@ export function ChatWindow({
                       ),
                       strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                       em: ({ children }) => <em className="italic">{children}</em>,
-                      h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
+                      h1: ({ children }) => <h1 className="text-sm font-semibold mb-0.5">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-semibold mb-0.5">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-0.5">{children}</h3>,
                     }}
                   >
                     {message.text}
@@ -644,7 +674,8 @@ export function ChatWindow({
               </div>
             )}
           </div>
-        ))}
+          )})
+        })()}
 
         {/* Permission Request */}
         {permissionRequest && (
@@ -687,35 +718,19 @@ export function ChatWindow({
           </div>
         )}
 
-        {agentState === 'working' && !permissionRequest && (
+        {agentState === 'working' && !permissionRequest && !currentTool && (
           <div className="flex justify-start">
-            <div
-              className="px-3 py-2 rounded-xl text-sm"
-              style={{
-                background: currentTool ? 'rgba(234, 179, 8, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                borderLeft: currentTool ? '2px solid rgba(234, 179, 8, 0.6)' : 'none',
-              }}
-            >
-              {currentTool ? (
-                <span className="flex items-center gap-2">
-                  <span className="opacity-60">🔧</span>
-                  <span className="font-mono text-xs">
-                    {currentTool.tool}
-                    {currentTool.input && (
-                      <span className="opacity-60 ml-1 truncate max-w-[200px] inline-block align-bottom">
-                        {currentTool.input}
-                      </span>
-                    )}
+            <div className="flex items-center gap-2 py-1">
+              <span style={{ color: '#4ade80', fontSize: '8px', animation: 'blink-triangle 1.2s ease-in-out infinite' }}>◆</span>
+              <span className="tool-call-text font-mono text-xs">
+                {isMaster ? PLANNING_PHRASES[planningPhraseIndex] : (
+                  <span className="inline-flex gap-1">
+                    <span className="animate-bounce">.</span>
+                    <span className="animate-bounce" style={{ animationDelay: '0.1s' }}>.</span>
+                    <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>.</span>
                   </span>
-                </span>
-              ) : (
-                <span className="inline-flex gap-1">
-                  <span className="animate-bounce">.</span>
-                  <span className="animate-bounce" style={{ animationDelay: '0.1s' }}>.</span>
-                  <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>.</span>
-                </span>
-              )}
+                )}
+              </span>
             </div>
           </div>
         )}
@@ -723,21 +738,20 @@ export function ChatWindow({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Status bar */}
-      {getStatusText() && (
-        <div className="px-4 py-1 text-xs text-white/40">
-          {getStatusText()}
-        </div>
-      )}
-
       {/* Input */}
       <div
-        className="chat-input p-3"
+        className="chat-input"
         style={{
           borderTop: '1px solid rgba(255, 255, 255, 0.1)',
         }}
       >
-        <div className="flex gap-2">
+        <div
+          className="rounded-b-[8px]"
+          style={{
+            background: 'rgba(255, 255, 255, 0.08)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+          }}
+        >
           <textarea
             ref={(el) => {
               textareaRef.current = el
@@ -760,48 +774,78 @@ export function ChatWindow({
             }
             disabled={agentState === 'error'}
             rows={1}
-            className="flex-1 px-3 py-2 rounded-lg text-sm text-white placeholder-white/40 outline-none disabled:opacity-50 resize-none"
+            className="w-full px-3.5 pt-3 pb-1 text-sm text-white placeholder-white/40 outline-none disabled:opacity-50 resize-none"
             style={{
-              background: 'rgba(255, 255, 255, 0.1)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'transparent',
+              border: 'none',
               minHeight: '36px',
               maxHeight: '120px',
               overflow: 'auto',
             }}
           />
-          {agentState === 'working' ? (
-            <button
-              onClick={() => killAgent(lizardId)}
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-              style={{
-                background: 'rgba(239, 68, 68, 0.7)',
-                color: 'white',
-              }}
-            >
-              <StopIcon width={14} height={14} />
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={agentState === 'error'}
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 focus:outline-none"
-              style={{
-                background: 'transparent',
-                color: 'white',
-                border: 'none',
-                outline: 'none',
-              }}
-            >
-              {agentState === 'queued' ? 'Queue' : 'Send'}
-            </button>
-          )}
-        </div>
-        {workingDir && (
-          <div className="mt-2 text-white/30 text-xs font-mono truncate" title={workingDir}>
-            {workingDir}
+          <div className="flex items-center justify-between px-2 pb-2">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={openPlanPanel}
+                disabled={!hasActivePlan}
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-all hover:bg-white/20 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                }}
+                title={hasActivePlan ? 'View active plan' : 'No active plan'}
+              >
+                <FileTextIcon width={12} height={12} />
+                <span>Plan</span>
+              </button>
+              {hasActivePlan && (
+                <button
+                  onClick={cancelPlan}
+                  className="flex items-center justify-center w-5 h-5 text-xs rounded transition-all hover:text-white/70"
+                  style={{
+                    background: 'transparent',
+                    color: 'rgba(255, 255, 255, 0.3)',
+                    border: 'none',
+                  }}
+                  title="Cancel plan"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5">
+              {agentState === 'working' ? (
+                <button
+                  onClick={() => killAgent(lizardId)}
+                  className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-all hover:bg-red-500/30"
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    color: 'rgba(239, 68, 68, 0.8)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                  }}
+                >
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><rect width="8" height="8" rx="1" /></svg>
+                  <span>Stop</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={agentState === 'error'}
+                  className="p-1.5 rounded-full text-white/50 hover:text-white transition-colors disabled:opacity-50 focus:outline-none"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Resize handles */}

@@ -17,6 +17,34 @@
   opacity: 0 !important;
 }
 
+/* Blinking green triangle for tool calls */
+@keyframes blink-triangle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+/* Metallic green shimmer for tool call text */
+@keyframes metal-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.tool-call-text {
+  background: linear-gradient(
+    105deg,
+    rgba(134, 239, 172, 0.6) 0%,
+    rgba(187, 247, 208, 0.95) 25%,
+    rgba(220, 252, 231, 1) 50%,
+    rgba(187, 247, 208, 0.95) 75%,
+    rgba(134, 239, 172, 0.6) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: metal-shimmer 3s linear infinite;
+}
+
 /* Flickering animation for status indicator */
 @keyframes flicker {
   0%, 100% {
