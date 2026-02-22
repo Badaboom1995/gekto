@@ -172,9 +172,12 @@ export function ChatWindow({
         }
         return [...prev, message]
       })
+    } else if (message.toolUse) {
+      // Tool message: just append, keep streaming text visible
+      setMessages(prev => [...prev, message])
     } else {
-      // Final message: remove any streaming placeholder, then append
-      setMessages(prev => [...prev.filter(m => m.id !== 'gekto_streaming'), message])
+      // Final response: remove streaming placeholders, then append
+      setMessages(prev => [...prev.filter(m => !m.id.startsWith('streaming_') && m.id !== 'gekto_streaming'), message])
     }
   }, [])
 
@@ -183,6 +186,8 @@ export function ChatWindow({
 
   // Load chat history on mount - from task.chatHistory if available, else REST API
   useEffect(() => {
+    if (historyLoaded) return
+
     const greeting = lizardId === MASTER_ID
       ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
       : 'Hi! How can I help you today?'
@@ -241,7 +246,7 @@ export function ChatWindow({
         }])
         setHistoryLoaded(true)
       })
-  }, [lizardId, task])
+  }, [lizardId, task, historyLoaded])
 
   // Save chat history when messages change (only for master/agents without tasks)
   // Agents with tasks use store persistence via AgentContext

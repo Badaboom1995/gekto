@@ -309,7 +309,7 @@ function runClaudeOnce(
       '-p', prompt,
       '--output-format', 'stream-json',
       '--verbose',
-      '--model', 'claude-opus-4-5-20251101',
+      '--model', 'claude-sonnet-4-6',
       '--system-prompt', systemPrompt,
       '--dangerously-skip-permissions',
     ]
