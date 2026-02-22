@@ -177,11 +177,13 @@ function handleOpusEvent(event: Record<string, unknown>): void {
     }
   }
 
-  // Text streaming
+  // Text streaming (text_delta = response text, thinking_delta = extended thinking)
   if (event.type === 'content_block_delta') {
-    const delta = event.delta as { type?: string; text?: string } | undefined
+    const delta = event.delta as { type?: string; text?: string; thinking?: string } | undefined
     if (delta?.type === 'text_delta' && delta.text) {
       opusCallbacks?.onText?.(delta.text)
+    } else if (delta?.type === 'thinking_delta' && delta.thinking) {
+      opusCallbacks?.onText?.(delta.thinking)
     }
   }
 

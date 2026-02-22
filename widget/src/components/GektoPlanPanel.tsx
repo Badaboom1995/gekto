@@ -27,9 +27,11 @@ interface TaskRowProps {
   task: Task
   onMarkResolved?: (taskId: string) => void
   onRetry?: (taskId: string) => void
+  onRun?: (taskId: string) => void
+  onRemove?: (taskId: string) => void
 }
 
-function TaskRow({ task, onMarkResolved, onRetry }: TaskRowProps) {
+function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove }: TaskRowProps) {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
   const [isPromptVisible, setIsPromptVisible] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
@@ -83,11 +85,44 @@ function TaskRow({ task, onMarkResolved, onRetry }: TaskRowProps) {
       <div className="mt-0.5">
         <TaskStatusIcon status={task.status} />
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 relative">
+        {/* Play & Remove buttons — top right corner */}
+        {(task.status === 'pending' || task.status === 'failed') && !isRemoving && (
+          <div className="absolute top-0 right-0 flex items-center gap-1">
+            <button
+              onClick={() => onRun?.(task.id)}
+              className="w-6 h-6 flex items-center justify-center rounded-full transition-all hover:scale-110"
+              style={{
+                background: 'rgba(59, 130, 246, 0.15)',
+                color: 'rgb(96, 165, 250)',
+                paddingLeft: 2,
+              }}
+              title="Run task"
+            >
+              <svg width="10" height="12" viewBox="0 0 10 12" fill="currentColor">
+                <path d="M1 1.3a1 1 0 0 1 1.5-.86l6.2 3.86a1 1 0 0 1 0 1.72L2.5 9.88A1 1 0 0 1 1 9.02V1.3Z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => onRemove?.(task.id)}
+              className="w-6 h-6 flex items-center justify-center rounded-full transition-all hover:scale-110"
+              style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: 'rgb(248, 113, 113)',
+              }}
+              title="Remove task"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M2 2l6 6M8 2l-6 6" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Description - truncated to 2 lines, expandable */}
         <div className="mb-1">
           <div
-            className="text-white text-sm font-medium whitespace-pre-wrap"
+            className="text-white text-xs font-medium whitespace-pre-wrap pr-14"
             style={{ wordBreak: 'break-word' }}
           >
             {truncatedDescription}
@@ -195,13 +230,19 @@ function TaskRow({ task, onMarkResolved, onRetry }: TaskRowProps) {
 }
 
 export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
-  const { currentPlan, executePlan, cancelPlan, markTaskResolved, retryTask } = useGekto()
+  const { currentPlan, executePlan, buildPlan, cancelPlan, markTaskResolved, retryTask, runTask, removeTask } = useGekto()
   if (!currentPlan) return null
 
   const completedCount = currentPlan.tasks.filter(t => t.status === 'completed').length
   const pendingTestingCount = currentPlan.tasks.filter(t => t.status === 'pending_testing').length
   const totalCount = currentPlan.tasks.length
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
+
+  // Show Build button when all tasks are resolved (empty list) or plan completed, and buildPrompt exists
+  const showBuildButton = !!currentPlan.buildPrompt && (
+    currentPlan.tasks.length === 0 ||
+    currentPlan.status === 'completed'
+  )
 
   return (
     <div
@@ -259,12 +300,27 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
               </span>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            {showBuildButton && (
+              <button
+                onClick={() => buildPlan()}
+                className="px-3 py-1 rounded-md text-xs font-medium transition-colors"
+                style={{
+                  background: 'rgba(34, 197, 94, 0.2)',
+                  color: 'rgb(74, 222, 128)',
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                }}
+              >
+                Build
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
 
@@ -336,6 +392,8 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
                 task={task}
                 onMarkResolved={markTaskResolved}
                 onRetry={retryTask}
+                onRun={runTask}
+                onRemove={removeTask}
               />
             ))
           )}

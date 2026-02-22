@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
 import { sendMessage, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles } from './agentPool.js'
 import { processWithTools, type ExecutionPlan, type PlanCallbacks } from './gektoTools.js'
-import { initGekto, sendToGekto, getGektoState, abortGekto, setStateCallback, getGektoSessionId, type GektoCallbacks, type GektoMode } from './gektoPersistent.js'
+import { initGekto, sendToGekto, getGektoState, abortGekto, setStateCallback, type GektoCallbacks, type GektoMode } from './gektoPersistent.js'
 
 // Track connected clients to broadcast Gekto state
 const connectedClients = new Set<WebSocket>()
@@ -187,7 +187,6 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
                   getActiveSessions(),
                   planCallbacks,
                   msg.existingPlan,  // Pass existing plan for modifications
-                  getGektoSessionId()  // Share session for chat history
                 )
 
                 if (planResult.type === 'build' && planResult.plan) {

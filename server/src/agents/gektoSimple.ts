@@ -119,8 +119,12 @@ function runHaiku(
                 resultText = block.text
               }
             }
-          } else if (event.type === 'content_block_delta' && event.delta?.text) {
-            resultText += event.delta.text
+          } else if (event.type === 'content_block_delta') {
+            if (event.delta?.text) {
+              resultText += event.delta.text
+            } else if (event.delta?.thinking) {
+              resultText += event.delta.thinking
+            }
           }
         } catch {
           // Ignore parse errors
