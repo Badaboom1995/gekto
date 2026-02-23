@@ -29,11 +29,11 @@ interface TaskRowProps {
   onRetry?: (taskId: string) => void
   onRun?: (taskId: string) => void
   onRemove?: (taskId: string) => void
+  onShowPrompt?: (task: Task) => void
 }
 
-function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove }: TaskRowProps) {
+function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove, onShowPrompt }: TaskRowProps) {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
-  const [isPromptVisible, setIsPromptVisible] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
 
   const handleMarkResolved = () => {
@@ -88,27 +88,28 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove }: TaskRowProp
       <div className="flex-1 min-w-0 relative">
         {/* Play & Remove buttons — top right corner */}
         {(task.status === 'pending' || task.status === 'failed') && !isRemoving && (
-          <div className="absolute top-0 right-0 flex items-center gap-1">
+          <div className="absolute top-0 right-0 flex items-center gap-1.5">
             <button
               onClick={() => onRun?.(task.id)}
-              className="w-6 h-6 flex items-center justify-center rounded-full transition-all hover:scale-110"
+              className="w-6 h-6 flex items-center justify-center rounded transition-all hover:brightness-125"
               style={{
-                background: 'rgba(59, 130, 246, 0.15)',
-                color: 'rgb(96, 165, 250)',
-                paddingLeft: 2,
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                color: 'rgba(255, 255, 255, 0.6)',
+                paddingLeft: 1,
               }}
               title="Run task"
             >
-              <svg width="10" height="12" viewBox="0 0 10 12" fill="currentColor">
-                <path d="M1 1.3a1 1 0 0 1 1.5-.86l6.2 3.86a1 1 0 0 1 0 1.72L2.5 9.88A1 1 0 0 1 1 9.02V1.3Z" />
+              <svg width="8" height="10" viewBox="0 0 8 10" fill="currentColor">
+                <path d="M1 0.5a.5.5 0 0 1 .77-.42l5.73 3.57a.5.5 0 0 1 0 .84L1.77 8.06A.5.5 0 0 1 1 7.64V0.5Z" />
               </svg>
             </button>
             <button
               onClick={() => onRemove?.(task.id)}
-              className="w-6 h-6 flex items-center justify-center rounded-full transition-all hover:scale-110"
+              className="w-6 h-6 flex items-center justify-center rounded transition-all hover:text-white/70"
               style={{
-                background: 'rgba(239, 68, 68, 0.15)',
-                color: 'rgb(248, 113, 113)',
+                background: 'transparent',
+                color: 'rgba(255, 255, 255, 0.35)',
               }}
               title="Remove task"
             >
@@ -147,44 +148,22 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove }: TaskRowProp
           )}
         </div>
 
-        {/* Prompt button - elegant icon button */}
-        {task.prompt && task.prompt !== task.description && (
-          <div className="mt-2">
-            <button
-              onClick={() => setIsPromptVisible(!isPromptVisible)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-all"
-              style={{
-                background: isPromptVisible ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                color: isPromptVisible ? 'rgb(192, 132, 252)' : 'rgba(255, 255, 255, 0.5)',
-                border: isPromptVisible ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-            >
-              <ChatBubbleIcon width={12} height={12} />
-              <span>Agent Prompt</span>
-              {isPromptVisible ? (
-                <ChevronUpIcon width={12} height={12} />
-              ) : (
-                <ChevronDownIcon width={12} height={12} />
-              )}
-            </button>
-
-            {/* Prompt content */}
-            {isPromptVisible && (
-              <div
-                className="mt-2 p-2 rounded-md text-xs text-white/70 whitespace-pre-wrap"
-                style={{
-                  background: 'rgba(0, 0, 0, 0.2)',
-                  border: '1px solid rgba(168, 85, 247, 0.2)',
-                  maxHeight: 200,
-                  overflowY: 'auto',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {task.prompt}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Prompt button - opens modal */}
+        <div className="mt-2">
+          <button
+            onClick={() => task.prompt && onShowPrompt?.(task)}
+            disabled={!task.prompt}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: 'rgba(255, 255, 255, 0.5)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            <ChatBubbleIcon width={12} height={12} />
+            <span>Agent Prompt</span>
+          </button>
+        </div>
 
         {task.assignedAgentId && (
           <div className="text-xs text-white/40 mt-1">
@@ -230,13 +209,16 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove }: TaskRowProp
 }
 
 export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
-  const { currentPlan, executePlan, buildPlan, cancelPlan, markTaskResolved, retryTask, runTask, removeTask } = useGekto()
+  const [modalPrompt, setModalPrompt] = useState<Task | null>(null)
+  const { currentPlan, generatePrompts, executePlan, buildPlan, cancelPlan, markTaskResolved, retryTask, runTask, removeTask } = useGekto()
   if (!currentPlan) return null
 
   const completedCount = currentPlan.tasks.filter(t => t.status === 'completed').length
   const pendingTestingCount = currentPlan.tasks.filter(t => t.status === 'pending_testing').length
+  const promptsGeneratedCount = currentPlan.tasks.filter(t => t.prompt && t.prompt.length > 0).length
   const totalCount = currentPlan.tasks.length
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
+  const promptProgress = totalCount > 0 ? (promptsGeneratedCount / totalCount) * 100 : 0
 
   // Show Build button when all tasks are resolved (empty list) or plan completed, and buildPrompt exists
   const showBuildButton = !!currentPlan.buildPrompt && (
@@ -264,7 +246,6 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           backdropFilter: 'blur(12px) saturate(180%)',
           WebkitBackdropFilter: 'blur(12px) saturate(180%)',
           border: '1px solid rgba(255, 255, 255, 0.18)',
-          boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
         }}
       >
         {/* Header */}
@@ -282,6 +263,16 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             {currentPlan.status === 'ready' && (
               <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
                 Ready
+              </span>
+            )}
+            {currentPlan.status === 'generating_prompts' && (
+              <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-400">
+                Generating Prompts...
+              </span>
+            )}
+            {currentPlan.status === 'prompts_ready' && (
+              <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                Prompts Ready
               </span>
             )}
             {currentPlan.status === 'executing' && (
@@ -340,6 +331,28 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           </div>
         )}
 
+        {/* Prompt generation progress bar */}
+        {currentPlan.status === 'generating_prompts' && (
+          <div className="px-4 py-2">
+            <div className="flex items-center gap-2 text-xs text-white/60 mb-1">
+              <span>Generating prompts</span>
+              <span>{promptsGeneratedCount}/{totalCount}</span>
+            </div>
+            <div
+              className="h-1 rounded-full overflow-hidden"
+              style={{ background: 'rgba(255, 255, 255, 0.1)' }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${promptProgress}%`,
+                  background: 'linear-gradient(90deg, #a855f7, #c084fc)',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Progress bar */}
         {currentPlan.status === 'executing' && (
           <div className="px-4 py-2">
@@ -394,6 +407,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
                 onRetry={retryTask}
                 onRun={runTask}
                 onRemove={removeTask}
+                onShowPrompt={setModalPrompt}
               />
             ))
           )}
@@ -405,6 +419,32 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}
         >
           {currentPlan.status === 'ready' && (
+            <>
+              <button
+                onClick={() => generatePrompts()}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  background: 'rgba(168, 85, 247, 0.2)',
+                  color: '#c084fc',
+                  border: '1px solid rgba(168, 85, 247, 0.3)',
+                }}
+              >
+                Generate Prompts
+              </button>
+              <button
+                onClick={cancelPlan}
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'rgba(255, 255, 255, 0.6)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                }}
+              >
+                Cancel
+              </button>
+            </>
+          )}
+          {currentPlan.status === 'prompts_ready' && (
             <>
               <button
                 onClick={() => executePlan()}
@@ -429,6 +469,19 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
                 Cancel
               </button>
             </>
+          )}
+          {currentPlan.status === 'generating_prompts' && (
+            <button
+              disabled
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium opacity-50 cursor-not-allowed"
+              style={{
+                background: 'rgba(168, 85, 247, 0.1)',
+                color: '#c084fc',
+                border: '1px solid rgba(168, 85, 247, 0.2)',
+              }}
+            >
+              Generating Prompts ({promptsGeneratedCount}/{totalCount})
+            </button>
           )}
           {currentPlan.status === 'executing' && (
             <button
@@ -458,6 +511,58 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           )}
         </div>
       </div>
+
+      {/* Prompt modal */}
+      {modalPrompt && (
+        <div
+          className="fixed inset-0"
+          style={{ zIndex: 10001 }}
+          onClick={() => setModalPrompt(null)}
+        >
+          <div className="absolute inset-0" style={{ background: 'rgba(0, 0, 0, 0.7)' }} />
+          <div className="flex items-center justify-center w-full h-full">
+            <div
+              className="relative rounded-2xl overflow-hidden flex flex-col"
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: 700,
+                maxWidth: '90vw',
+                maxHeight: '80vh',
+                background: 'linear-gradient(135deg, rgb(35, 35, 45), rgb(45, 45, 55))',
+                backdropFilter: 'blur(12px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+                border: '1px solid rgba(255, 255, 255, 0.18)',
+              }}
+            >
+              {/* Modal header */}
+              <div
+                className="flex items-center justify-between px-5 py-3 shrink-0"
+                style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}
+              >
+                <span className="text-white font-medium text-sm truncate pr-4">
+                  {modalPrompt.description}
+                </span>
+                <button
+                  onClick={() => setModalPrompt(null)}
+                  className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+              {/* Modal body */}
+              <div
+                className="flex-1 overflow-y-auto p-5 text-xs text-white/80 whitespace-pre-wrap"
+                style={{
+                  fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {modalPrompt.prompt}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
