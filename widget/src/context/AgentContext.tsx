@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
-import { useStore, type Message, type ToolMessage } from '../store/store'
+import { useStore, type Message, type ToolMessage, type FileChange } from '../store/store'
 
 // Helper to save message - to store if agent has task, otherwise to REST API
 async function saveMessage(agentId: string, message: Message) {
@@ -59,13 +59,8 @@ interface ToolStatus {
   fullInput?: Record<string, unknown>
 }
 
-// File change from agent Write/Edit operations
-export interface FileChange {
-  tool: 'Write' | 'Edit'
-  filePath: string
-  before: string | null
-  after: string
-}
+// FileChange type re-exported from store (persisted on Agent)
+export type { FileChange } from '../store/store'
 
 interface PermissionRequest {
   tool: string
@@ -91,7 +86,6 @@ interface LizardSession {
   lastResponse?: string  // Store last response for task completion
   lastStatus?: 'done' | 'pending'  // Status extracted from [STATUS:DONE/PENDING] marker
   streamingText?: string  // Accumulates text chunks as agent explains what it's doing
-  fileChanges: FileChange[]  // File changes from Write/Edit operations
 }
 
 interface AgentContextValue {
@@ -147,7 +141,6 @@ const DEFAULT_SESSION: LizardSession = {
   currentTool: null,
   permissionRequest: null,
   queuePosition: 0,
-  fileChanges: [],
 }
 
 export function AgentProvider({ children }: AgentProviderProps) {
@@ -282,10 +275,11 @@ export function AgentProvider({ children }: AgentProviderProps) {
           case 'text':
             // Streaming text - show latest message (not accumulated)
             if (lizardId) {
-              // Strip system markers like [AGENT_NAME:...] and [STATUS:...]
+              // Strip system markers like [AGENT_NAME:...], [STATUS:...], and [TASK_CONTEXT]
               let cleanText = msg.text
                 .replace(/\[AGENT_NAME:[^\]]+\]\s*/g, '')
                 .replace(/\[STATUS:(DONE|PENDING)\]/gi, '')
+                .replace(/\[TASK_CONTEXT\][\s\S]*?\[\/TASK_CONTEXT\]\s*/g, '')
                 .trim()
 
               if (cleanText) {
@@ -295,60 +289,33 @@ export function AgentProvider({ children }: AgentProviderProps) {
                   ...(currentSession ?? DEFAULT_SESSION),
                   streamingText: cleanText
                 })
+
+                // Notify ChatWindow listener with streaming message so text is visible in chat
+                const listener = messageListenersRef.current.get(lizardId)
+                if (listener) {
+                  listener({
+                    id: `streaming_${lizardId}`,
+                    text: cleanText,
+                    sender: 'bot',
+                    timestamp: new Date(),
+                    isStreaming: true,
+                  } as Message & { isStreaming: boolean })
+                }
               }
             }
             break
 
           case 'file_change':
-            // File changed by Write/Edit tool
-            // Keep only one entry per file: original "before" + latest "after"
+            // File changed by Write/Edit tool — persist in store
             if (lizardId && msg.change) {
-              const change = msg.change as FileChange
-              setSessions(prev => {
-                const next = new Map(prev)
-                const current = next.get(lizardId) ?? { ...DEFAULT_SESSION }
-
-                // Check if we already have a change for this file
-                const existingIndex = current.fileChanges.findIndex(
-                  fc => fc.filePath === change.filePath
-                )
-
-                let updatedChanges: FileChange[]
-                if (existingIndex >= 0) {
-                  // Update existing entry: keep original "before", use new "after"
-                  updatedChanges = [...current.fileChanges]
-                  updatedChanges[existingIndex] = {
-                    ...updatedChanges[existingIndex],
-                    after: change.after,
-                    tool: change.tool, // Update tool to latest operation
-                  }
-                } else {
-                  // New file - add to list
-                  updatedChanges = [...current.fileChanges, change]
-                }
-
-                next.set(lizardId, {
-                  ...current,
-                  fileChanges: updatedChanges,
-                })
-                return next
-              })
+              useStore.getState().addFileChange(lizardId, msg.change as FileChange)
             }
             break
 
           case 'files_reverted':
-            // Remove reverted files from the session's fileChanges list
+            // Remove reverted files from the store
             if (lizardId && msg.reverted) {
-              const revertedSet = new Set(msg.reverted as string[])
-              setSessions(prev => {
-                const next = new Map(prev)
-                const current = next.get(lizardId) ?? { ...DEFAULT_SESSION }
-                next.set(lizardId, {
-                  ...current,
-                  fileChanges: current.fileChanges.filter(fc => !revertedSet.has(fc.filePath)),
-                })
-                return next
-              })
+              useStore.getState().removeFileChanges(lizardId, msg.reverted as string[])
             }
             break
 
@@ -387,6 +354,26 @@ export function AgentProvider({ children }: AgentProviderProps) {
                 return next
               })
             }
+
+            // Detect orphaned agents — in store as 'working' but not on server
+            {
+              const serverIds = new Set((msg.agents || []).map((a: ActiveAgent) => a.lizardId))
+              const storeState = useStore.getState()
+              for (const [agentId, agent] of Object.entries(storeState.agents)) {
+                if (agent.status === 'working' && !serverIds.has(agentId)) {
+                  const task = agent.taskId ? storeState.tasks[agent.taskId] : undefined
+                  if (task?.prompt && ws.readyState === WebSocket.OPEN) {
+                    console.log(`[Agent] Resuming orphaned agent ${agentId} with sessionId=${task.sessionId || 'none'}`)
+                    ws.send(JSON.stringify({
+                      type: 'resume_agent',
+                      lizardId: agentId,
+                      sessionId: task.sessionId,
+                      prompt: task.prompt,
+                    }))
+                  }
+                }
+              }
+            }
             break
 
           case 'kill_result':
@@ -406,6 +393,8 @@ export function AgentProvider({ children }: AgentProviderProps) {
           case 'gekto_classified':
           case 'gekto_text':
           case 'gekto_remove':
+          case 'prompt_generated':
+          case 'prompts_ready':
           case 'task_started':
           case 'task_completed':
           case 'task_failed': {
@@ -485,6 +474,15 @@ export function AgentProvider({ children }: AgentProviderProps) {
               text,
               sender: 'bot',
               timestamp: new Date(),
+            }
+
+            // Save sessionId to task for recovery after server restart
+            if (lizardId && msg.sessionId) {
+              const storeState = useStore.getState()
+              const agent = storeState.agents[lizardId]
+              if (agent?.taskId) {
+                storeState.updateTask(agent.taskId, { sessionId: msg.sessionId })
+              }
             }
 
             // Save to store and notify listener
@@ -591,15 +589,14 @@ export function AgentProvider({ children }: AgentProviderProps) {
   }, [sessions])
 
   const getFileChanges = useCallback((lizardId: string): FileChange[] => {
-    return sessions.get(lizardId)?.fileChanges ?? []
-  }, [sessions])
+    return useStore.getState().agents[lizardId]?.fileChanges ?? []
+  }, [])
 
   const revertFiles = useCallback((lizardId: string, filePaths: string[]) => {
     if (wsRef.current?.readyState !== WebSocket.OPEN) return
-    const session = sessionsRef.current.get(lizardId)
-    if (!session) return
+    const agentFileChanges = useStore.getState().agents[lizardId]?.fileChanges ?? []
     // Send the relevant FileChange objects so server has the `before` content
-    const relevantChanges = session.fileChanges.filter(fc => filePaths.includes(fc.filePath))
+    const relevantChanges = agentFileChanges.filter(fc => filePaths.includes(fc.filePath))
     wsRef.current.send(JSON.stringify({
       type: 'revert_files',
       lizardId,

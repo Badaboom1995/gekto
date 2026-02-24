@@ -251,6 +251,10 @@ export class HeadlessAgent {
     return this.sessionId
   }
 
+  setSessionId(id: string): void {
+    this.sessionId = id
+  }
+
   resetSession(): void {
     this.sessionId = null
   }

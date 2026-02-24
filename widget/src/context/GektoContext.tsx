@@ -6,7 +6,7 @@ import { useStore } from '../store/store'
 // === Types ===
 
 // Plan statuses
-type PlanStatus = 'planning' | 'ready' | 'executing' | 'completed' | 'failed'
+type PlanStatus = 'planning' | 'ready' | 'generating_prompts' | 'prompts_ready' | 'executing' | 'completed' | 'failed'
 type TaskStatus = 'pending' | 'in_progress' | 'pending_testing' | 'completed' | 'failed'
 
 // Task in a plan (unified view for UI)
@@ -57,6 +57,7 @@ interface GektoContextValue {
 
   // Plan actions
   createPlan: (prompt: string) => Promise<void>
+  generatePrompts: () => void
   executePlan: () => Promise<void>
   buildPlan: () => Promise<void>
   cancelPlan: () => void
@@ -197,6 +198,22 @@ export function GektoProvider({ children }: GektoProviderProps) {
   }, [getWebSocket, storeAgents, directMode, currentPlan])
   
 
+  // Generate prompts for the current plan (Step 2 — parallel LLM calls)
+  const generatePrompts = useCallback(() => {
+    const plan = currentPlanRef.current
+    if (!plan || plan.status !== 'ready') return
+
+    const ws = getWebSocket()
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+
+    setCurrentPlan(prev => prev ? { ...prev, status: 'generating_prompts' } : null)
+
+    ws.send(JSON.stringify({
+      type: 'generate_prompts',
+      planId: plan.id,
+    }))
+  }, [getWebSocket])
+
   // Execute the current plan
   // Use a ref to always have the latest plan without stale closures
   const currentPlanRef = useRef(currentPlan)
@@ -208,8 +225,8 @@ export function GektoProvider({ children }: GektoProviderProps) {
       console.warn('[Gekto] executePlan: no current plan')
       return
     }
-    if (plan.status !== 'ready') {
-      console.warn('[Gekto] executePlan: plan status is', plan.status, '(expected ready)')
+    if (plan.status !== 'prompts_ready') {
+      console.warn('[Gekto] executePlan: plan status is', plan.status, '(expected prompts_ready)')
       return
     }
 
@@ -297,8 +314,20 @@ export function GektoProvider({ children }: GektoProviderProps) {
 
     // Send task prompts to workers (with delay to ensure state is updated)
     setTimeout(() => {
-      for (const { agentId, prompt } of taskAssignments) {
-        sendMessage(agentId, prompt)
+      for (const { taskId, agentId, prompt } of taskAssignments) {
+        // Enrich prompt with task context so agent knows what it's working on
+        const taskObj = plan.tasks.find(t => t.id === taskId)
+        const taskContext = [
+          `[TASK_CONTEXT]`,
+          `Task ID: ${taskId}`,
+          `Task: ${taskObj?.description || 'Unknown'}`,
+          taskObj?.files?.length ? `Files to modify: ${taskObj.files.join(', ')}` : null,
+          `Plan goal: ${plan.originalPrompt}`,
+          `[/TASK_CONTEXT]`,
+          '',
+        ].filter(Boolean).join('\n')
+
+        sendMessage(agentId, taskContext + prompt)
       }
     }, 100)
   }, [getWebSocket, storeCreateTask, storeCreateAgent, sendMessage])
@@ -363,9 +392,17 @@ export function GektoProvider({ children }: GektoProviderProps) {
       }
     })
 
-    // Send prompt to worker
+    // Send prompt to worker with task context
     setTimeout(() => {
-      sendMessage(agentId, currentPlan.buildPrompt!)
+      const taskContext = [
+        `[TASK_CONTEXT]`,
+        `Task: Build — wire all components together`,
+        `Plan goal: ${currentPlan.originalPrompt}`,
+        `[/TASK_CONTEXT]`,
+        '',
+      ].join('\n')
+
+      sendMessage(agentId, taskContext + currentPlan.buildPrompt!)
     }, 100)
   }, [currentPlan, getWebSocket, storeCreateTask, storeCreateAgent, sendMessage])
 
@@ -519,9 +556,19 @@ export function GektoProvider({ children }: GektoProviderProps) {
       }
     })
 
-    // Send prompt to worker
+    // Send prompt to worker with task context
     setTimeout(() => {
-      sendMessage(agentId, task.prompt)
+      const taskContext = [
+        `[TASK_CONTEXT]`,
+        `Task ID: ${task.id}`,
+        `Task: ${task.description}`,
+        task.files?.length ? `Files to modify: ${task.files.join(', ')}` : null,
+        `Plan goal: ${currentPlan.originalPrompt}`,
+        `[/TASK_CONTEXT]`,
+        '',
+      ].filter(Boolean).join('\n')
+
+      sendMessage(agentId, taskContext + task.prompt)
     }, 100)
   }, [currentPlan, getWebSocket, storeCreateTask, storeCreateAgent, sendMessage])
 
@@ -644,7 +691,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
             tasks: (plan.tasks || []).map((t: Partial<Task>, i: number) => ({
               id: t.id || `${plan.id}_task_${i + 1}`,
               description: t.description || 'Task',
-              prompt: t.prompt || plan.originalPrompt,
+              prompt: t.prompt ?? '',
               files: t.files || [],
               status: 'pending' as TaskStatus,
               dependencies: t.dependencies || [],
@@ -709,6 +756,27 @@ export function GektoProvider({ children }: GektoProviderProps) {
             ),
             status: 'failed',
           }
+        })
+        break
+
+      case 'prompt_generated':
+        // Individual task prompt generated (from parallel Step 2)
+        setCurrentPlan(prev => {
+          if (!prev || prev.id !== msg.planId) return prev
+          return {
+            ...prev,
+            tasks: prev.tasks.map(t =>
+              t.id === msg.taskId ? { ...t, prompt: msg.prompt || t.prompt } : t
+            ),
+          }
+        })
+        break
+
+      case 'prompts_ready':
+        // All prompts generated — plan ready for execution
+        setCurrentPlan(prev => {
+          if (!prev || prev.id !== msg.planId) return prev
+          return { ...prev, status: 'prompts_ready' }
         })
         break
 
@@ -856,6 +924,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
     directMode,
     setDirectMode,
     createPlan,
+    generatePrompts,
     executePlan,
     buildPlan,
     cancelPlan,
@@ -875,6 +944,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
     config,
     directMode,
     createPlan,
+    generatePrompts,
     executePlan,
     buildPlan,
     cancelPlan,

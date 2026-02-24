@@ -51,11 +51,19 @@ export interface Task {
 // pending_testing = agent finished, awaiting user verification
 export type TaskStatus = 'pending' | 'in_progress' | 'pending_testing' | 'completed' | 'failed'
 
+export interface FileChange {
+  tool: 'Write' | 'Edit'
+  filePath: string
+  before: string | null
+  after: string
+}
+
 export interface Agent {
   id: string
   taskId: string
   personaId: string
   status: AgentStatus
+  fileChanges?: FileChange[]
 }
 
 export type AgentStatus = 'idle' | 'working' | 'done' | 'pending' | 'error'
@@ -96,6 +104,8 @@ interface GektoActions {
   updateAgent: (id: string, updates: Partial<Agent>) => void
   deleteAgent: (id: string) => void
   clearAllAgents: () => void
+  addFileChange: (agentId: string, change: FileChange) => void
+  removeFileChanges: (agentId: string, filePaths: string[]) => void
 
   // Plans
   createPlan: (plan: Omit<Plan, 'createdAt'> & { createdAt?: Date }) => Plan
@@ -236,6 +246,35 @@ export const useStore = create<GektoStore>()(
       },
       clearAllAgents: () => {
         set({ agents: {} })
+      },
+      addFileChange: (agentId, change) => {
+        set((s) => {
+          const agent = s.agents[agentId]
+          if (!agent) return s
+          const existing = agent.fileChanges ?? []
+          const existingIndex = existing.findIndex(fc => fc.filePath === change.filePath)
+          let updated: FileChange[]
+          if (existingIndex >= 0) {
+            updated = [...existing]
+            updated[existingIndex] = {
+              ...updated[existingIndex],
+              after: change.after,
+              tool: change.tool,
+            }
+          } else {
+            updated = [...existing, change]
+          }
+          return { agents: { ...s.agents, [agentId]: { ...agent, fileChanges: updated } } }
+        })
+      },
+      removeFileChanges: (agentId, filePaths) => {
+        set((s) => {
+          const agent = s.agents[agentId]
+          if (!agent) return s
+          const revertedSet = new Set(filePaths)
+          const updated = (agent.fileChanges ?? []).filter(fc => !revertedSet.has(fc.filePath))
+          return { agents: { ...s.agents, [agentId]: { ...agent, fileChanges: updated } } }
+        })
       },
 
       // Plans

@@ -1,6 +1,6 @@
 {
   "name": "gekto",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "AI coding assistant widget - inject into any web app",
   "type": "module",
   "bin": {

@@ -1,0 +1,69 @@
+.arcade-machine-page {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background-color: #0a0a0f;
+}
+
+.machine-nav {
+  height: 56px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1.5rem;
+  background-color: rgba(10, 10, 15, 0.95);
+  border-bottom: 1px solid #00ffff;
+}
+
+.back-button {
+  background: none;
+  border: none;
+  color: #00ffff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  letter-spacing: 0.05em;
+  transition: text-shadow 0.2s ease;
+}
+
+.back-button:hover {
+  text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff, 0 0 24px #00ffff;
+}
+
+.nav-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #00ffff;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.6), 0 0 20px rgba(0, 255, 255, 0.4);
+}
+
+.machine-canvas {
+  flex: 1;
+  width: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* Hidden container for game canvas - rendered off-screen and used as 3D texture */
+.game-canvas-container {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  width: 300px;
+  height: 400px;
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.game-canvas-placeholder {
+  width: 100%;
+  height: 100%;
+  background-color: #001a1a;
+}

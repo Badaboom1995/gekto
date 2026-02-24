@@ -85,7 +85,7 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
   const [diffAgentId, setDiffAgentId] = useState<string | null>(null)
 
   // Get sessions, workingDir, and file changes from AgentContext
-  const { sessions, getWorkingDir, getFileChanges, revertFiles, acceptAgent } = useAgent()
+  const { sessions, getWorkingDir, revertFiles, acceptAgent } = useAgent()
   const workingDir = getWorkingDir()
 
   // Get agents and tasks from store
@@ -156,17 +156,16 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
   const agentsWithTasks = useMemo(() =>
     Object.values(agents).map(agent => {
       const session = sessions.get(agent.id)
-      const fileChanges = getFileChanges(agent.id)
       return {
         agent,
         task: tasks[agent.taskId],
         currentTool: session?.currentTool?.tool,
         streamingText: session?.streamingText,
         workingDir,
-        fileChangeCount: fileChanges.length,
+        fileChangeCount: agent.fileChanges?.length ?? 0,
       }
     }),
-    [agents, tasks, sessions, workingDir, getFileChanges]
+    [agents, tasks, sessions, workingDir]
   )
 
   // Sync agents to TaskShapes (Zustand → tldraw)
@@ -188,7 +187,7 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
       const link = document.createElement('link')
       link.id = styleId
       link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/tldraw@3/tldraw.css'
+      link.href = 'https://unpkg.com/tldraw@4/tldraw.css'
       document.head.appendChild(link)
     }
 
@@ -317,13 +316,13 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
       {/* Diff modal - rendered in portal to appear above tldraw */}
       {diffAgentId && portalContainer && createPortal(
         <DiffModal
-          fileChanges={getFileChanges(diffAgentId)}
+          fileChanges={agents[diffAgentId]?.fileChanges ?? []}
           onClose={() => setDiffAgentId(null)}
           onRevertFile={(filePath) => {
             revertFiles(diffAgentId, [filePath])
           }}
           onRevertAll={() => {
-            const changes = getFileChanges(diffAgentId)
+            const changes = agents[diffAgentId]?.fileChanges ?? []
             revertFiles(diffAgentId, changes.map(fc => fc.filePath))
             setDiffAgentId(null)
           }}

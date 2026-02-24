@@ -1,0 +1,242 @@
+/* Arcade Gallery CSS Variables */
+:root {
+  --neon-pink: #ff00ff;
+  --neon-blue: #00ffff;
+  --neon-green: #00ff00;
+  --neon-yellow: #ffff00;
+  --neon-orange: #ff6600;
+  --bg-dark: #0a0a0f;
+  --card-bg: #1a1a2e;
+}
+
+/* Gallery Container */
+.arcade-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.5rem;
+  padding: 1rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Arcade Card */
+.arcade-card {
+  position: relative;
+  background: var(--card-bg);
+  border: 2px solid var(--neon-blue);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  aspect-ratio: 3/4;
+  display: flex;
+  flex-direction: column;
+}
+
+.arcade-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.1) 2px,
+    rgba(0, 0, 0, 0.1) 4px
+  );
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0.5;
+}
+
+.arcade-card:hover {
+  transform: scale(1.05) translateY(-5px);
+  border-color: var(--neon-pink);
+  box-shadow:
+    0 0 10px var(--neon-pink),
+    0 0 20px var(--neon-pink),
+    0 0 40px var(--neon-pink),
+    inset 0 0 10px rgba(255, 0, 255, 0.1);
+}
+
+.arcade-card.available:hover {
+  border-color: var(--neon-green);
+  box-shadow:
+    0 0 10px var(--neon-green),
+    0 0 20px var(--neon-green),
+    0 0 40px var(--neon-green),
+    inset 0 0 10px rgba(0, 255, 0, 0.1);
+}
+
+/* Pixel Art Container */
+.arcade-card__cabinet {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.arcade-card__cabinet svg {
+  width: 100%;
+  height: auto;
+  max-width: 140px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transition: transform 0.3s ease, filter 0.3s ease;
+  filter: drop-shadow(0 0 8px rgba(0, 255, 255, 0.3));
+}
+
+.arcade-card:hover .arcade-card__cabinet svg {
+  transform: scale(1.15);
+  filter: drop-shadow(0 0 15px rgba(255, 0, 255, 0.5));
+}
+
+.arcade-card.available:hover .arcade-card__cabinet svg {
+  filter: drop-shadow(0 0 15px rgba(0, 255, 0, 0.5));
+}
+
+/* Game Name */
+.arcade-card__name {
+  font-family: "Press Start 2P", "Courier New", monospace;
+  font-size: 0.65rem;
+  color: var(--neon-blue);
+  text-align: center;
+  padding: 0.75rem 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-shadow:
+    0 0 5px var(--neon-blue),
+    0 0 10px var(--neon-blue);
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.8),
+    transparent
+  );
+}
+
+/* Play Button */
+.arcade-card__play-btn {
+  position: absolute;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "Press Start 2P", "Courier New", monospace;
+  font-size: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: transparent;
+  border: 2px solid var(--neon-green);
+  color: var(--neon-green);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition: all 0.3s ease;
+  z-index: 15;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.arcade-card:hover .arcade-card__play-btn {
+  opacity: 1;
+  visibility: visible;
+}
+
+.arcade-card__play-btn:hover {
+  background: var(--neon-green);
+  color: var(--bg-dark);
+  box-shadow:
+    0 0 10px var(--neon-green),
+    0 0 20px var(--neon-green),
+    0 0 40px var(--neon-green);
+  animation: buttonGlow 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes buttonGlow {
+  from {
+    box-shadow:
+      0 0 10px var(--neon-green),
+      0 0 20px var(--neon-green);
+  }
+  to {
+    box-shadow:
+      0 0 20px var(--neon-green),
+      0 0 40px var(--neon-green),
+      0 0 60px var(--neon-green);
+  }
+}
+
+/* Scanline Animation */
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.arcade-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(0, 255, 255, 0.03),
+    transparent
+  );
+  animation: scanline 8s linear infinite;
+  pointer-events: none;
+  z-index: 6;
+}
+
+/* Card Flip Animation on Hover */
+.arcade-card.flip-effect {
+  transform-style: preserve-3d;
+  perspective: 1000px;
+}
+
+.arcade-card.flip-effect:hover {
+  transform: rotateY(5deg) scale(1.05);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .arcade-gallery {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+    padding: 0.5rem;
+  }
+
+  .arcade-card__name {
+    font-size: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .arcade-card__play-btn {
+    font-size: 0.4rem;
+    padding: 0.4rem 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .arcade-gallery {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
+  .arcade-card__name {
+    font-size: 0.45rem;
+  }
+}
+
+/* Pixel font import suggestion (add to index.html) */
+/* @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap'); */

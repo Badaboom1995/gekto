@@ -2,8 +2,8 @@ import { WebSocket, WebSocketServer } from 'ws'
 import type { Server } from 'http'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
-import { sendMessage, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles } from './agentPool.js'
-import { processWithTools, type ExecutionPlan, type PlanCallbacks } from './gektoTools.js'
+import { sendMessage, resumeSession, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles } from './agentPool.js'
+import { processWithTools, generateTaskPrompts, type ExecutionPlan, type PlanCallbacks, type PromptGenCallbacks } from './gektoTools.js'
 import { initGekto, sendToGekto, getGektoState, abortGekto, setStateCallback, type GektoCallbacks, type GektoMode } from './gektoPersistent.js'
 
 // Track connected clients to broadcast Gekto state
@@ -233,6 +233,62 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             }
             return
 
+          case 'generate_prompts': {
+            const genPlan = activePlans.get(msg.planId)
+            if (!genPlan) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Plan not found' }))
+              return
+            }
+
+            // Set master to working while generating
+            ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'working' }))
+
+            try {
+              const genCallbacks: PromptGenCallbacks = {
+                onTaskPromptGenerated: (taskId, prompt) => {
+                  // Update server-side plan
+                  const task = genPlan.tasks.find(t => t.id === taskId)
+                  if (task) task.prompt = prompt
+                  // Notify client
+                  ws.send(JSON.stringify({
+                    type: 'prompt_generated',
+                    planId: msg.planId,
+                    taskId,
+                    prompt,
+                  }))
+                },
+                onAllPromptsReady: () => {
+                  genPlan.status = 'prompts_ready'
+                  ws.send(JSON.stringify({
+                    type: 'prompts_ready',
+                    planId: msg.planId,
+                  }))
+                },
+                onError: (taskId, error) => {
+                  ws.send(JSON.stringify({
+                    type: 'prompt_generated',
+                    planId: msg.planId,
+                    taskId,
+                    prompt: genPlan.tasks.find(t => t.id === taskId)?.description || 'Execute task',
+                    error,
+                  }))
+                },
+              }
+
+              await generateTaskPrompts(genPlan, getWorkingDir(), genCallbacks)
+            } catch (err) {
+              console.error('[Agent] Prompt generation failed:', err)
+              ws.send(JSON.stringify({
+                type: 'gekto_chat',
+                planId: msg.planId,
+                message: `Error generating prompts: ${err instanceof Error ? err.message : 'Failed'}`,
+              }))
+            }
+
+            ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'ready' }))
+            return
+          }
+
           case 'execute_plan':
             // Execute an existing plan
             const plan = activePlans.get(msg.planId)
@@ -252,6 +308,23 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
               activePlans.delete(msg.planId)
             }
             return
+
+          case 'resume_agent': {
+            const { lizardId: resumeId, sessionId: resumeSessionId, prompt: resumePrompt } = msg
+            if (!resumeId) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Missing lizardId for resume' }))
+              return
+            }
+            // Create session with restored sessionId
+            resumeSession(resumeId, resumeSessionId, ws)
+            // Send the original prompt to resume work
+            try {
+              await sendMessage(resumeId, resumePrompt || 'Continue where you left off.', ws)
+            } catch (err) {
+              console.error(`[Agent] Resume failed for ${resumeId}:`, err)
+            }
+            return
+          }
         }
 
         // Commands that require lizardId

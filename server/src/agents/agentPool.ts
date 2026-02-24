@@ -80,6 +80,31 @@ function getOrCreateSession(lizardId: string, ws?: WebSocket): LizardSession {
   return session
 }
 
+export function resumeSession(lizardId: string, sessionId?: string, ws?: WebSocket): LizardSession {
+  let session = sessions.get(lizardId)
+  if (!session) {
+    const agent = new HeadlessAgent({
+      systemPrompt: DEFAULT_SYSTEM_PROMPT,
+      workingDir: getWorkingDir(),
+      disallowedTools: DISALLOWED_TOOLS,
+    })
+    // Restore Claude Code session ID so --resume works
+    if (sessionId) {
+      agent.setSessionId(sessionId)
+    }
+    session = {
+      agent,
+      isProcessing: false,
+      queue: [],
+      currentWs: ws ?? null,
+    }
+    sessions.set(lizardId, session)
+  } else if (ws) {
+    session.currentWs = ws
+  }
+  return session
+}
+
 export function isProcessing(lizardId: string): boolean {
   const session = sessions.get(lizardId)
   return session?.isProcessing ?? false
@@ -271,6 +296,8 @@ export function killSession(lizardId: string): boolean {
     const killed = session.agent.kill()
     session.isProcessing = false
     session.queue = []
+    // Remove from map so getActiveSessions() doesn't return dead agents
+    sessions.delete(lizardId)
     return killed
   }
   return false
@@ -329,5 +356,7 @@ export function killAllSessions(): number {
     session.isProcessing = false
     session.queue = []
   }
+  // Clear all sessions so getActiveSessions() returns empty
+  sessions.clear()
   return count
 }

@@ -71,7 +71,7 @@ function spawnOpus(): void {
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
     '--verbose',
-    '--model', 'claude-opus-4-5-20251101',
+    '--model', 'claude-sonnet-4-6',
     '--system-prompt', OPUS_SYSTEM_PROMPT,
     '--dangerously-skip-permissions',
     '--disallowed-tools', 'Bash', 'Task',
@@ -85,6 +85,9 @@ function spawnOpus(): void {
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
+
+  // Prevent EPIPE crash when writing to stdin of a dead process
+  opusProcess.stdin.on('error', () => {})
 
   opusProcess.on('error', (err) => {
     console.error(`[GektoPersistent] Spawn error:`, err)
@@ -134,7 +137,7 @@ function spawnOpus(): void {
 
   // Warm up: send a quick message to trigger ready state
   setTimeout(() => {
-    if (opusProcess && !opusReady) {
+    if (opusProcess && !opusProcess.killed && opusProcess.stdin.writable) {
       const warmup = { type: 'user', message: { role: 'user', content: 'hi' } }
       opusProcess.stdin.write(JSON.stringify(warmup) + '\n')
     }
@@ -219,7 +222,12 @@ async function sendToOpus(prompt: string, callbacks: GektoCallbacks): Promise<st
       type: 'user',
       message: { role: 'user', content: prompt },
     }
-    opusProcess!.stdin.write(JSON.stringify(inputMessage) + '\n')
+    if (opusProcess && !opusProcess.killed && opusProcess.stdin.writable) {
+      opusProcess.stdin.write(JSON.stringify(inputMessage) + '\n')
+    } else {
+      opusPendingResolve?.('Process is not available, please try again.')
+      opusPendingResolve = null
+    }
 
     // Timeout after 5 min for complex tasks
     setTimeout(() => {
@@ -229,6 +237,15 @@ async function sendToOpus(prompt: string, callbacks: GektoCallbacks): Promise<st
       }
     }, 300000)
   })
+}
+
+// === Planning API (reuses warm persistent process) ===
+
+export async function sendPlanningPrompt(
+  prompt: string,
+  callbacks?: GektoCallbacks,
+): Promise<string> {
+  return sendToOpus(prompt, callbacks || {})
 }
 
 // === Main API ===

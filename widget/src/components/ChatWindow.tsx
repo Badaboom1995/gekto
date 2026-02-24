@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { LightningBoltIcon, FileTextIcon, StopIcon, TrashIcon } from '@radix-ui/react-icons'
+import { FileTextIcon, TrashIcon } from '@radix-ui/react-icons'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
@@ -100,8 +100,6 @@ export function ChatWindow({
     getLizardState,
     getCurrentTool,
     getPermissionRequest,
-    getQueuePosition,
-    getWorkingDir,
     gektoState,
     killAgent,
   } = useAgent()
@@ -156,8 +154,8 @@ export function ChatWindow({
   const agentState = sessions.get(lizardId)?.state ?? getLizardState(lizardId)
   const currentTool = getCurrentTool(lizardId)
   const permissionRequest = getPermissionRequest(lizardId)
-  const queuePosition = getQueuePosition(lizardId)
-  const workingDir = getWorkingDir()
+
+
 
   // Handle incoming messages from agent (name extraction is done in AgentContext)
   const handleAgentMessage = useCallback((message: Message & { isStreaming?: boolean }) => {
@@ -482,19 +480,7 @@ export function ChatWindow({
     }
   }
 
-  const getStatusText = () => {
-    if (currentTool) {
-      const toolName = currentTool.tool
-      const input = currentTool.input ? `: ${currentTool.input}` : ''
-      return `${toolName}${input}`
-    }
-    switch (agentState) {
-      case 'working': return isMaster ? PLANNING_PHRASES[planningPhraseIndex] : AGENT_PHRASES[agentPhraseIndex]
-      case 'queued': return `Queued (position ${queuePosition})`
-      case 'error': return 'Connection error'
-      default: return ''
-    }
-  }
+
 
   const toggleToolExpanded = (messageId: string) => {
     setExpandedTools(prev => {
@@ -576,7 +562,6 @@ export function ChatWindow({
       >
         {(() => {
           // Group consecutive tool messages by tool name
-          const grouped: { type: 'message', message: typeof messages[0] }[] | { type: 'tool-group', tool: string, count: number, ids: string[], messages: typeof messages }[] = []
           const result: Array<{ type: 'message', message: typeof messages[0] } | { type: 'tool-group', tool: string, count: number, ids: string[], messages: typeof messages }> = []
           for (const msg of messages) {
             if (msg.toolUse) {

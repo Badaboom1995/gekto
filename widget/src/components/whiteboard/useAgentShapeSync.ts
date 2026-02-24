@@ -76,8 +76,8 @@ function buildShapeProps(agent: Agent, task: Task | undefined, index: number, cu
   // Working directory for footer
   if (workingDir) props.workingDir = workingDir
 
-  // File change count for diff button
-  if (fileChangeCount && fileChangeCount > 0) props.fileChangeCount = fileChangeCount
+  // File change count for diff button (always set so tldraw merges it to 0 when cleared)
+  props.fileChangeCount = fileChangeCount ?? 0
 
   return props
 }

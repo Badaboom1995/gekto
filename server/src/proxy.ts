@@ -219,6 +219,14 @@ async function main() {
   const { setupAgentWebSocket } = await import('./agents/agentWebSocket.js')
   const { initStore, getData, setData } = await import('./store.js')
 
+  // Prevent EPIPE and other uncaught errors from crashing the server
+  process.on('uncaughtException', (err) => {
+    console.error('[proxy] Uncaught exception (server stays running):', err.message)
+  })
+  process.on('unhandledRejection', (err) => {
+    console.error('[proxy] Unhandled rejection (server stays running):', err)
+  })
+
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
   // Parse CLI arguments (for overrides)
@@ -438,16 +446,20 @@ async function main() {
             })
           } else {
             res.writeHead(proxyRes.statusCode || 200, headers)
-            proxyRes.pipe(res)
+            proxyRes.on('error', () => {}).pipe(res)
+            res.on('error', () => {})
           }
         }
       )
 
       proxyReq.on('error', (err) => {
-        res.writeHead(502, { 'Content-Type': 'application/json' })
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json' })
+        }
         res.end(JSON.stringify({ error: `Proxy error: ${err.message}` }))
       })
 
+      req.on('error', () => {})
       req.pipe(proxyReq)
       return
     }
@@ -474,7 +486,8 @@ async function main() {
           headers: { host: `localhost:${WIDGET_PORT}` }
         }, (widgetRes) => {
           res.writeHead(widgetRes.statusCode || 200, widgetRes.headers as Record<string, string>)
-          widgetRes.pipe(res)
+          widgetRes.on('error', () => {}).pipe(res)
+          res.on('error', () => {})
         })
         widgetReq.on('error', () => {
           res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' })
@@ -567,11 +580,13 @@ async function main() {
         })
       } else {
         res.writeHead(proxyRes.statusCode || 200, proxyRes.headers as Record<string, string>)
-        proxyRes.pipe(res)
+        proxyRes.on('error', () => {}).pipe(res)
+        res.on('error', () => {})
       }
     })
 
     proxyReq.on('error', (err) => {
+      if (res.headersSent) return
       res.writeHead(502, { 'Content-Type': 'text/html' })
       res.end(`
         <html>
@@ -586,6 +601,7 @@ async function main() {
       `)
     })
 
+    req.on('error', () => {})
     req.pipe(proxyReq)
   })
 
@@ -612,6 +628,8 @@ async function main() {
       socket.write('HTTP/1.1 101 Switching Protocols\r\n' +
         Object.entries(proxyRes.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n') +
         '\r\n\r\n')
+      proxySocket.on('error', () => socket.destroy())
+      socket.on('error', () => proxySocket.destroy())
       proxySocket.pipe(socket)
       socket.pipe(proxySocket)
     })
