@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
 import { sendMessage, resumeSession, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles } from './agentPool.js'
 import { processWithTools, generateTaskPrompts, type ExecutionPlan, type PlanCallbacks, type PromptGenCallbacks } from './gektoTools.js'
-import { initGekto, sendToGekto, getGektoState, abortGekto, setStateCallback, type GektoCallbacks, type GektoMode } from './gektoPersistent.js'
+import { initGekto, getGektoState, abortGekto, setStateCallback } from './gektoPersistent.js'
 
 // Track connected clients to broadcast Gekto state
 const connectedClients = new Set<WebSocket>()
@@ -110,15 +110,12 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             return
 
           case 'create_plan':
-            // Mode is passed from client (default: 'plan', can toggle to 'direct')
-            const mode: GektoMode = msg.mode || 'plan'
-
             // Set master lizard to working state
             ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'working' }))
 
             try {
-              // Create callbacks for streaming events to client
-              const callbacks: GektoCallbacks = {
+              // Streaming callbacks for tool events and text
+              const planCallbacks: PlanCallbacks = {
                 onToolStart: (tool, input) => {
                   ws.send(JSON.stringify({
                     type: 'tool',
@@ -146,78 +143,33 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
                 },
               }
 
-              const response = await sendToGekto(msg.prompt, mode, callbacks)
+              const planResult = await processWithTools(
+                msg.prompt,
+                msg.planId,
+                getWorkingDir(),
+                getActiveSessions(),
+                planCallbacks,
+                msg.existingPlan,
+              )
 
-              if (response.mode === 'plan') {
-                // Plan mode - use gektoTools for task breakdown
-
-                // Create callbacks for plan tool streaming
-                const planCallbacks: PlanCallbacks = {
-                  onToolStart: (tool, input) => {
-                    ws.send(JSON.stringify({
-                      type: 'tool',
-                      lizardId: 'master',
-                      status: 'running',
-                      tool,
-                      input: summarizeToolInput(input),
-                      fullInput: input,
-                    }))
-                  },
-                  onToolEnd: (tool) => {
-                    ws.send(JSON.stringify({
-                      type: 'tool',
-                      lizardId: 'master',
-                      status: 'completed',
-                      tool,
-                    }))
-                  },
-                  onText: (text) => {
-                    ws.send(JSON.stringify({
-                      type: 'gekto_text',
-                      planId: msg.planId,
-                      text,
-                    }))
-                  },
-                }
-
-                const planResult = await processWithTools(
-                  msg.prompt,
-                  msg.planId,
-                  getWorkingDir(),
-                  getActiveSessions(),
-                  planCallbacks,
-                  msg.existingPlan,  // Pass existing plan for modifications
-                )
-
-                if (planResult.type === 'build' && planResult.plan) {
-                  activePlans.set(msg.planId, planResult.plan)
-                  ws.send(JSON.stringify({
-                    type: 'plan_created',
-                    planId: msg.planId,
-                    plan: planResult.plan,
-                  }))
-                } else if (planResult.type === 'remove' && planResult.removedAgents) {
-                  ws.send(JSON.stringify({
-                    type: 'gekto_remove',
-                    planId: msg.planId,
-                    agents: planResult.removedAgents,
-                  }))
-                } else {
-                  ws.send(JSON.stringify({
-                    type: 'gekto_chat',
-                    planId: msg.planId,
-                    message: planResult.message || 'Plan created.',
-                  }))
-                }
+              if (planResult.type === 'build' && planResult.plan) {
+                activePlans.set(msg.planId, planResult.plan)
+                ws.send(JSON.stringify({
+                  type: 'plan_created',
+                  planId: msg.planId,
+                  plan: planResult.plan,
+                }))
+              } else if (planResult.type === 'remove' && planResult.removedAgents) {
+                ws.send(JSON.stringify({
+                  type: 'gekto_remove',
+                  planId: msg.planId,
+                  agents: planResult.removedAgents,
+                }))
               } else {
-                // Direct mode - response already sent via callbacks
                 ws.send(JSON.stringify({
                   type: 'gekto_chat',
                   planId: msg.planId,
-                  message: response.message,
-                  timing: {
-                    workMs: response.workMs,
-                  },
+                  message: planResult.message || 'Plan created.',
                 }))
               }
 

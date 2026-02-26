@@ -88,12 +88,12 @@ export function RadialMenu({
   }), [isLightTheme])
 
   const cardWidth = 40
-  const cardHeight = 48
+  const cardHeight = 40
   const dangerCardWidth = 32
-  const dangerCardHeight = 36
+  const dangerCardHeight = 32
   const borderRadius = 12
-  const gap = 10
-  const separatedGap = 10
+  const gap = 6
+  const separatedGap = 12
 
   // Clean up animation on unmount or when not visible
   useEffect(() => {
@@ -155,7 +155,7 @@ export function RadialMenu({
     }
   }
 
-  const renderItem = (item: MenuItem, index: number, offsetX: number) => {
+  const renderItem = (item: MenuItem, index: number, offsetY: number) => {
     const isHovered = hoveredItem === item.id
     const isHolding = holdingItem === item.id
     const currentWidth = item.danger ? dangerCardWidth : cardWidth
@@ -166,10 +166,10 @@ export function RadialMenu({
         key={item.id}
         className="absolute pointer-events-auto cursor-pointer"
         style={{
-          ...(side === 'left' ? { right: offsetX } : { left: offsetX }),
-          top: (cardHeight - currentHeight) / 2,
+          left: (cardWidth - currentWidth) / 2,
+          bottom: offsetY,
           opacity: isVisible ? 1 : 0,
-          transform: isVisible ? 'translateX(0)' : `translateX(${side === 'left' ? '20px' : '-20px'})`,
+          transform: isVisible ? 'translateY(0)' : 'translateY(10px)',
           transition: `opacity 0.2s ease-out ${index * 0.05}s, transform 0.2s ease-out ${index * 0.05}s`,
         }}
         onMouseEnter={() => setHoveredItem(item.id)}
@@ -183,7 +183,7 @@ export function RadialMenu({
             startHold(item)
           }
         }}
-        
+
         onMouseUp={() => {
           if (item.holdDuration) {
             cancelHold()
@@ -193,21 +193,19 @@ export function RadialMenu({
         onClick={(e) => {
           e.stopPropagation()
           e.preventDefault()
-          // Only trigger immediately if no holdDuration
           if (!item.holdDuration) {
             item.onClick()
           }
         }}
       >
-        {/* Label */}
+        {/* Label - to the right of the card */}
         <span
-          className="absolute bottom-full mb-2 text-xs whitespace-nowrap"
+          className="absolute left-full ml-2 top-1/2 -translate-y-1/2 text-xs whitespace-nowrap"
           style={{
             color: colors.labelColor,
             opacity: isHovered ? 1 : 0,
-            transform: isHovered ? 'translateY(0)' : 'translateY(5px)',
+            transform: `translateY(-50%) translateX(${isHovered ? '0' : '-5px'})`,
             transition: 'opacity 0.15s ease-out, transform 0.15s ease-out',
-            ...(side === 'left' ? { right: 0 } : { left: 0 }),
           }}
         >
           {isHolding ? 'Hold...' : item.label}
@@ -228,7 +226,6 @@ export function RadialMenu({
             transform: isHovered ? 'scale(1.1)' : 'scale(1)',
           }}
         >
-          {/* Fill-up progress for hold items (like glass filling with water) */}
           {item.holdDuration && (
             <div
               className="absolute inset-0 pointer-events-none"
@@ -246,9 +243,9 @@ export function RadialMenu({
     )
   }
 
-  // Calculate positions from right to left
+  // Calculate vertical positions bottom to top (first item closest to lizard)
   const itemsWithOffsets = items.reduce<Array<{ item: MenuItem; index: number; offset: number }>>((acc, item, index) => {
-    const prevOffset = acc.length > 0 ? acc[acc.length - 1].offset + cardWidth : 0
+    const prevOffset = acc.length > 0 ? acc[acc.length - 1].offset + (acc[acc.length - 1].item.danger ? dangerCardHeight : cardHeight) : 0
     const gapToAdd = index > 0 ? (item.separated ? separatedGap : gap) : 0
     const offset = prevOffset + gapToAdd
     acc.push({ item, index, offset })
@@ -260,19 +257,21 @@ export function RadialMenu({
       data-radial-menu
       className="absolute pointer-events-none"
       style={{
-        ...(side === 'left' ? { right: size - 10 } : { left: size - 10 }),
-        top: (size - cardHeight) / 2,
-        height: cardHeight,
+        left: (size - cardWidth - 30) / 2,
+        bottom: size * 0.01,
+        width: cardWidth,
       }}
     >
       {itemsWithOffsets.map(({ item, index, offset }) => renderItem(item, index, offset))}
 
-      {/* Theme toggle button - positioned below and mirrored */}
+      {/* Theme toggle button - below the last item */}
       <div
         className="absolute pointer-events-auto cursor-pointer"
         style={{
-          ...(side === 'left' ? { right: -6 } : { left: -18 }),
-          bottom: -45,
+          left: (cardWidth - 34) / 2,
+          bottom: (itemsWithOffsets.length > 0
+            ? itemsWithOffsets[itemsWithOffsets.length - 1].offset + cardHeight + 12
+            : 0),
           width: 34,
           height: 34,
           borderRadius: '50%',

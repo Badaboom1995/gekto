@@ -32,20 +32,33 @@ export function MasterLizard() {
   // Subscribe to sessions to trigger re-render on state changes
   sessions.get(MASTER_ID)
 
-  const { currentPlan, isPlanPanelOpen, closePlanPanel } = useGekto()
+  const { currentPlan, isPlanPanelOpen, openPlanPanel, closePlanPanel } = useGekto()
 
   const isChatOpen = activeChatId === MASTER_ID
   const inputRef = useRef<HTMLInputElement>(null)
   const [isHovered, setIsHovered] = useState(false)
   const [chatSize, setChatSize] = useState(getChatSize)
 
+  // Sync plan panel with chat: open when chat opens (if plan exists), close when chat closes
+  const prevChatOpen = useRef(false)
+  useEffect(() => {
+    if (isChatOpen && !prevChatOpen.current && currentPlan) {
+      openPlanPanel()
+    }
+    if (!isChatOpen && prevChatOpen.current) {
+      closePlanPanel()
+    }
+    prevChatOpen.current = isChatOpen
+  }, [isChatOpen, currentPlan, openPlanPanel, closePlanPanel])
+
   const menuItems = [
     {
       id: 'chat',
       icon: <ChatBubbleIcon width={20} height={20} />,
-      label: 'Chat',
+      label: isChatOpen ? 'Close Chat' : 'Chat',
       hotkey: '⇧C',
-      onClick: () => openChat(MASTER_ID, 'task'),
+      active: isChatOpen,
+      onClick: () => isChatOpen ? closeChat() : openChat(MASTER_ID, 'task'),
     },
     {
       id: 'spawn',
@@ -149,7 +162,7 @@ export function MasterLizard() {
       return
     }
     if (!hasMoved()) {
-      openChat(MASTER_ID, 'task')
+      isChatOpen ? closeChat() : openChat(MASTER_ID, 'task')
     }
   }
 
@@ -162,7 +175,7 @@ export function MasterLizard() {
         style={{
           left: position.x,
           top: position.y,
-          zIndex: 1000,
+          zIndex: 1003,
           pointerEvents: 'auto',
           transition: isDragging ? 'transform 0.2s ease-out' : 'left 0.4s ease-out, top 0.4s ease-out, transform 0.2s ease-out',
         }}
@@ -173,44 +186,29 @@ export function MasterLizard() {
       >
         <LizardAvatar size={MASTER_LIZARD_SIZE} color={MASTER_COLOR} faceRight />
 
-        {/* Extended hover area for menu */}
+        {/* Extended hover area for menu (above lizard) */}
         <div
           className="absolute pointer-events-auto"
           style={{
-            left: MASTER_LIZARD_SIZE - 20,
-            top: 0,
-            width: 200,
-            height: MASTER_LIZARD_SIZE,
+            left: 0,
+            bottom: MASTER_LIZARD_SIZE - 20,
+            width: MASTER_LIZARD_SIZE,
+            height: 300,
           }}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
         />
 
 
-        {/* Name label */}
-        <div
-          className="absolute whitespace-nowrap pointer-events-none"
-          style={{
-            bottom: MASTER_LIZARD_SIZE - 18,
-            left: '30%',
-            transform: 'translateX(-50%)',
-            fontSize: 14,
-            fontWeight: 600,
-            color: MASTER_COLOR,
-            textShadow: '0 1px 3px rgba(0, 0, 0, 0.5)',
-          }}
-        >
-          Gekto
-        </div>
       </div>
 
-      {/* Radial Menu - rendered outside lizard div with higher z-index */}
+      {/* Radial Menu - rendered outside lizard div, above chat panel */}
       <div
         className="fixed"
         style={{
           left: position.x,
           top: position.y,
-          zIndex: 1002,
+          zIndex: 1004,
           pointerEvents: 'none',
         }}
         onMouseEnter={() => setIsHovered(true)}

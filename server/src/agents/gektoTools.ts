@@ -1,56 +1,10 @@
 import { spawn } from 'child_process'
 import { CLAUDE_PATH } from '../claudePath.js'
 import { sendPlanningPrompt, type GektoCallbacks } from './gektoPersistent.js'
+import type { Task, ExecutionPlan, GektoToolResult } from './types.js'
 
-// === Tool Types ===
-
-export interface GektoToolResult {
-  type: 'chat' | 'build' | 'remove'
-  // Chat response
-  message?: string
-  // Build result
-  plan?: ExecutionPlan
-  // Remove result
-  removedAgents?: string[]
-}
-
-export interface Task {
-  id: string
-  description: string
-  prompt: string
-  files: string[]
-  status: 'pending' | 'in_progress' | 'pending_testing' | 'completed' | 'failed'
-  dependencies: string[]
-}
-
-export interface ExecutionPlan {
-  id: string
-  status: 'planning' | 'ready' | 'generating_prompts' | 'prompts_ready' | 'executing' | 'completed' | 'failed'
-  originalPrompt: string
-  reasoning?: string  // Gekto's explanation of task breakdown strategy
-  buildPrompt?: string  // Prompt to wire all components together (executed via Build button)
-  tasks: Task[]
-  createdAt: string
-}
-
-// Step 1: Research codebase, then split into tasks.
-const GEKTO_SYSTEM_PROMPT = `You are a task planner. First research the codebase using Read/Glob/Grep tools to understand the project structure, dependencies, and frameworks. Then split the user's request into parallel tasks.
-
-STEP 1: Use tools to research. Read package.json, check folder structure, find key files. This is essential — do NOT skip.
-STEP 2: Based on what you found, output JSON with the task split. All tasks run in parallel with no dependencies.
-
-If it's a greeting or question: {"tool":"chat","params":{"message":"your reply"}}
-If it's about removing agents: {"tool":"remove","params":{"target":"all"}}
-If it's a coding task: {"tool":"build","params":{"reasoning":"short explanation","buildPrompt":"how to wire parts together","tasks":[{"description":"short title","files":["path"],"dependencies":[]}]}}
-
-Task rules:
-- 3-7 tasks, ALL run in parallel (dependencies:[] for all)
-- No "research" or "scaffold" tasks — you already did that
-- Each task has ONLY 3 fields: description, files, dependencies
-- Description under 6 words
-- Tasks must not overlap on files
-- Include "buildPrompt" explaining how to wire everything together after tasks complete
-- Output raw JSON after research. No markdown.`
+// Re-export types for backward compatibility
+export type { Task, ExecutionPlan, GektoToolResult } from './types.js'
 
 // Step 2: Generate a detailed prompt for a single task (runs in parallel for each task)
 const PROMPT_GEN_SYSTEM = `You are a senior engineer writing a detailed task prompt for a coding agent.
@@ -75,6 +29,34 @@ export interface PlanCallbacks {
 interface ExistingPlanContext {
   tasks: { id: string; description: string; prompt: string; files: string[]; dependencies: string[] }[]
   reasoning?: string
+}
+
+// === Structured output parsing ===
+
+interface GektoStructuredOutput {
+  action: 'create_plan' | 'reply' | 'clarify' | 'remove_agents' | 'update_plan'
+  message?: string
+  reasoning?: string
+  buildPrompt?: string
+  tasks?: Partial<Task>[]
+  target?: string
+}
+
+function parseGektoOutput(raw: string): GektoStructuredOutput | null {
+  // With --json-schema, output should be valid JSON. Try direct parse first.
+  try {
+    return JSON.parse(raw)
+  } catch {
+    // Fallback: strip markdown fences and retry
+    const stripped = raw.trim().replace(/```json\s*/g, '').replace(/```\s*/g, '')
+    try {
+      return JSON.parse(stripped)
+    } catch (err) {
+      console.error('[Gekto] Failed to parse structured output:', err)
+      console.error('[Gekto] Raw output (first 500 chars):', raw.slice(0, 500))
+      return null
+    }
+  }
 }
 
 // === Main Processing Function ===
@@ -110,128 +92,50 @@ The user's message above is a modification request. You can:
 - Add new tasks to the existing ones
 - Remove specific tasks
 - Modify task descriptions or prompts
-- Respond with chat if you need clarification
+- Respond with clarify if you need clarification
 
-If modifying, output ALL tasks (existing + changes) in your build response.]`
+If modifying, use update_plan with ALL tasks (existing + changes).]`
   }
 
-  // Use the warm persistent process — embed planning instructions in the user message
-  const planningPrompt = `${GEKTO_SYSTEM_PROMPT}\n\nUser request: ${contextPrompt}`
-
+  // Send to persistent process (system prompt + --json-schema already configured there)
   const planCallbacks: GektoCallbacks = {
     onToolStart: callbacks?.onToolStart ? (tool, input) => callbacks.onToolStart!(tool, input) : undefined,
     onToolEnd: callbacks?.onToolEnd ? (tool) => callbacks.onToolEnd!(tool) : undefined,
     onText: callbacks?.onText ? (text) => callbacks.onText!(text) : undefined,
   }
 
-  const result = await sendPlanningPrompt(planningPrompt, planCallbacks)
+  const resultJson = await sendPlanningPrompt(contextPrompt, planCallbacks)
 
-  // Parse the JSON response
-  const parsed = extractAndParseJSON(result)
+  // Parse structured JSON output (guaranteed valid by --json-schema)
+  const parsed = parseGektoOutput(resultJson)
   if (!parsed) {
-    // No valid JSON found — treat as chat
-    return { type: 'chat', message: result.trim() || "I'm here to help! What would you like me to work on?" }
+    // Fallback: treat unparseable output as a chat reply
+    return { type: 'chat', message: resultJson.trim() || "I'm here to help! What would you like me to work on?" }
   }
 
-  const tool = parsed.tool as 'chat' | 'build' | 'remove'
-  const params = parsed.params || {}
-
-  switch (tool) {
-    case 'chat':
-      return {
-        type: 'chat',
-        message: params.message || 'Hello!',
-      }
-
-    case 'build':
+  switch (parsed.action) {
+    case 'create_plan':
+    case 'update_plan':
       return {
         type: 'build',
-        plan: createPlanFromTasks(params.tasks || [], planId, prompt, params.reasoning, params.buildPrompt),
+        plan: createPlanFromTasks(parsed.tasks || [], planId, prompt, parsed.reasoning, parsed.buildPrompt),
       }
 
-    case 'remove':
+    case 'reply':
+    case 'clarify':
+      return {
+        type: 'chat',
+        message: parsed.message || 'Hello!',
+      }
+
+    case 'remove_agents':
       return {
         type: 'remove',
-        removedAgents: resolveRemoveTarget(params.target, activeAgents),
+        removedAgents: resolveRemoveTarget(parsed.target || 'all', activeAgents),
       }
 
     default:
-      return { type: 'chat', message: "I'm not sure how to help with that." }
-  }
-}
-
-// === JSON Extraction & Repair ===
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractAndParseJSON(raw: string): Record<string, any> | null {
-  // Strip markdown code blocks
-  let str = raw.trim()
-  str = str.replace(/```json\s*/g, '').replace(/```\s*/g, '')
-
-  // Try parsing the whole thing first (might already be pure JSON)
-  try {
-    return JSON.parse(str)
-  } catch {
-    // Continue to extraction
-  }
-
-  // Find JSON object — match { with "tool" nearby (handles whitespace/newlines)
-  const jsonStart = str.search(/\{\s*"tool"/)
-  if (jsonStart === -1) {
-    // Fallback: find last top-level {
-    const fallbackIdx = str.lastIndexOf('\n{')
-    if (fallbackIdx === -1) {
-      // Last resort: find any {
-      const anyBrace = str.indexOf('{')
-      if (anyBrace === -1) return null
-      str = str.slice(anyBrace)
-    } else {
-      str = str.slice(fallbackIdx)
-    }
-  } else {
-    str = str.slice(jsonStart)
-  }
-
-  // Try parsing extracted JSON
-  try {
-    return JSON.parse(str)
-  } catch {
-    // Continue to repair
-  }
-
-  // Repair pass: fix common LLM JSON issues
-  let repaired = str
-
-  // Fix truncated key names (e.g. ,dencies" → ,"dependencies")
-  repaired = repaired.replace(/,\s*([a-z]+)":/g, (_match, partial: string) => {
-    const knownKeys = ['dependencies', 'description', 'files', 'status', 'prompt', 'reasoning', 'buildPrompt', 'tasks', 'message', 'target', 'tool', 'params', 'id']
-    const fullKey = knownKeys.find(k => k.endsWith(partial))
-    return fullKey ? `,"${fullKey}":` : `,"${partial}":`
-  })
-
-  // Fix missing quotes on keys
-  repaired = repaired.replace(/([{,])\s*([a-zA-Z_]\w*)\s*:/g, '$1"$2":')
-
-  // Fix trailing commas before } or ]
-  repaired = repaired.replace(/,\s*([}\]])/g, '$1')
-
-  // Try to balance unclosed brackets/braces
-  let braces = 0, brackets = 0
-  for (const ch of repaired) {
-    if (ch === '{') braces++
-    else if (ch === '}') braces--
-    else if (ch === '[') brackets++
-    else if (ch === ']') brackets--
-  }
-  while (brackets > 0) { repaired += ']'; brackets-- }
-  while (braces > 0) { repaired += '}'; braces-- }
-
-  try {
-    return JSON.parse(repaired)
-  } catch (err) {
-    console.error('[Gekto] JSON repair failed:', err)
-    console.error('[Gekto] Raw JSON (first 500 chars):', str.slice(0, 500))
-    return null
+      return { type: 'chat', message: parsed.message || "I'm not sure how to help with that." }
   }
 }
 

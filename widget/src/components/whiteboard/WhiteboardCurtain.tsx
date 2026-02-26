@@ -12,22 +12,30 @@ import { ChatWindow } from '../ChatWindow'
 // Custom shape utils for tldraw
 const customShapeUtils = [TaskShapeUtil, IframeShapeUtil]
 
-// Custom toolbar with only: select, hand, draw, eraser, rectangle, and Add Task
+// Single tool button (hooks must be at component top level)
+function ToolButton({ tool }: { tool: ReturnType<typeof useTools>[string] }) {
+  const isSelected = useIsToolSelected(tool)
+  return <TldrawUiMenuItem {...tool} isSelected={isSelected} />
+}
+
+// Custom toolbar with all tldraw tools plus Add Task and Add Iframe
 function CustomToolbar({ onAddTask, onAddIframe }: { onAddTask: () => void; onAddIframe: () => void }) {
   const tools = useTools()
-  const isSelectSelected = useIsToolSelected(tools['select'])
-  const isHandSelected = useIsToolSelected(tools['hand'])
-  const isDrawSelected = useIsToolSelected(tools['draw'])
-  const isEraserSelected = useIsToolSelected(tools['eraser'])
-  const isRectangleSelected = useIsToolSelected(tools['rectangle'])
+
+  const toolIds = [
+    'select', 'hand', 'draw', 'eraser',
+    'arrow', 'line', 'text', 'note', 'frame',
+    'rectangle', 'ellipse', 'diamond', 'triangle',
+    'highlight', 'laser',
+  ]
 
   return (
     <DefaultToolbar>
-      <TldrawUiMenuItem {...tools['select']} isSelected={isSelectSelected} />
-      <TldrawUiMenuItem {...tools['hand']} isSelected={isHandSelected} />
-      <TldrawUiMenuItem {...tools['draw']} isSelected={isDrawSelected} />
-      <TldrawUiMenuItem {...tools['eraser']} isSelected={isEraserSelected} />
-      {tools['rectangle'] && <TldrawUiMenuItem {...tools['rectangle']} isSelected={isRectangleSelected} />}
+      {toolIds.map(id => {
+        const tool = tools[id]
+        if (!tool) return null
+        return <ToolButton key={id} tool={tool} />
+      })}
       <button
         onClick={onAddTask}
         className="tlui-button tlui-button__tool"
@@ -270,6 +278,7 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
           }}
         >
           <Tldraw
+            licenseKey="tldraw-2026-05-14/WyJHMEFZeXpDWSIsWyIqIl0sMTYsIjIwMjYtMDUtMTQiXQ.gtnN//75zveJ6yBqHeYuEuV5g65GF4s5QkIkb16gDtE0rxIRAJKZA+szb/bEQDotWSRLuaG8CjlEzXl0lP/Viw"
             persistenceKey={persistenceKey}
             shapeUtils={customShapeUtils}
             onMount={(newEditor) => {
@@ -284,7 +293,6 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
               HelpMenu: null,
               NavigationPanel: null,
               PageMenu: null,
-              StylePanel: null,
               DebugMenu: null,
               DebugPanel: null,
             }}

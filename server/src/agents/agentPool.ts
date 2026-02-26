@@ -2,7 +2,8 @@ import path from 'path'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 import { WebSocket } from 'ws'
-import { HeadlessAgent, type StreamCallbacks, type AgentResponse, type FileChange } from './HeadlessAgent.js'
+import type { AgentProvider, StreamCallbacks, AgentResponse, FileChange } from './types.js'
+import { HeadlessAgent } from './HeadlessAgent.js'
 
 interface QueuedMessage {
   message: string
@@ -13,7 +14,7 @@ interface QueuedMessage {
 }
 
 interface LizardSession {
-  agent: HeadlessAgent
+  agent: AgentProvider
   isProcessing: boolean
   queue: QueuedMessage[]
   currentWs: WebSocket | null  // Track current WebSocket for delivering responses

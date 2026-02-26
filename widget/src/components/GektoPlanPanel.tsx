@@ -240,7 +240,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
       }}
     >
       <div
-        className="flex flex-col rounded-2xl overflow-hidden"
+        className="flex flex-col rounded-lg overflow-hidden"
         style={{
           background: 'linear-gradient(135deg, rgb(35, 35, 45), rgb(45, 45, 55))',
           backdropFilter: 'blur(12px) saturate(180%)',

@@ -1,14 +1,10 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { readFileSync, existsSync } from 'fs'
 import { CLAUDE_PATH } from '../claudePath.js'
+import type { AgentProvider, AgentConfig, AgentResponse, StreamCallbacks, FileChange } from './types.js'
 
-// File change tracking
-export interface FileChange {
-  tool: 'Write' | 'Edit'
-  filePath: string
-  before: string | null  // null if file didn't exist
-  after: string
-}
+// Re-export types for backward compatibility
+export type { AgentResponse, StreamCallbacks, FileChange } from './types.js'
 
 interface PendingFileChange {
   tool: 'Write' | 'Edit'
@@ -16,36 +12,13 @@ interface PendingFileChange {
   before: string | null
 }
 
-export interface AgentResponse {
-  type: string
-  subtype: string
-  is_error: boolean
-  result: string
-  session_id: string
-  total_cost_usd: number
-  duration_ms: number
-}
-
-export interface StreamCallbacks {
-  onToolStart?: (tool: string, input?: Record<string, unknown>) => void
-  onToolEnd?: (tool: string) => void
-  onText?: (text: string) => void
-  onFileChange?: (change: FileChange) => void
-}
-
-export interface HeadlessAgentConfig {
-  systemPrompt?: string
-  workingDir?: string
-  disallowedTools?: string[]
-}
-
-export class HeadlessAgent {
+export class HeadlessAgent implements AgentProvider {
   private sessionId: string | null = null
-  private config: HeadlessAgentConfig
+  private config: AgentConfig
   private currentProc: ChildProcess | null = null
   private pendingFileChanges: Map<string, PendingFileChange> = new Map()
 
-  constructor(config: HeadlessAgentConfig = {}) {
+  constructor(config: AgentConfig = {}) {
     this.config = config
   }
 
