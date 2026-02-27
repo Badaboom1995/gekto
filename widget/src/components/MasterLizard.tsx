@@ -250,7 +250,7 @@ export function MasterLizard() {
         <GektoPlanPanel
           position={{
             x: isChatOpen
-              ? position.x + MASTER_LIZARD_SIZE + 20 + chatSize.width + 20  // Right of chat
+              ? position.x + MASTER_LIZARD_SIZE + 20 + chatSize.width + 4  // Right of chat
               : position.x + MASTER_LIZARD_SIZE + 20,       // Right of master
             y: position.y + MASTER_LIZARD_SIZE - chatSize.height,
           }}

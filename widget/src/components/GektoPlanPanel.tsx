@@ -1,38 +1,25 @@
 import { useState } from 'react'
 import { ChatBubbleIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons'
 import { useGekto, type Task, type TaskStatus } from '../context/GektoContext'
+import { useAgent } from '../context/AgentContext'
 
 interface GektoPlanPanelProps {
   position: { x: number; y: number }
   onClose: () => void
 }
 
-function TaskStatusIcon({ status }: { status: TaskStatus }) {
-  switch (status) {
-    case 'pending':
-      return <span className="text-gray-400">○</span>
-    case 'in_progress':
-      // Pulsing empty circle for in-progress tasks
-      return <span className="text-blue-400 animate-pulse">○</span>
-    case 'pending_testing':
-      return <span className="text-yellow-400">◎</span>
-    case 'completed':
-      return <span className="text-green-400">✓</span>
-    case 'failed':
-      return <span className="text-red-400">✗</span>
-  }
-}
+
 
 interface TaskRowProps {
   task: Task
   onMarkResolved?: (taskId: string) => void
-  onRetry?: (taskId: string) => void
   onRun?: (taskId: string) => void
+  onStop?: (taskId: string) => void
   onRemove?: (taskId: string) => void
   onShowPrompt?: (task: Task) => void
 }
 
-function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove, onShowPrompt }: TaskRowProps) {
+function TaskRow({ task, onMarkResolved, onRun, onStop, onRemove, onShowPrompt }: TaskRowProps) {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
 
@@ -47,9 +34,9 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove, onShowPrompt 
   const getBackgroundStyle = () => {
     switch (task.status) {
       case 'in_progress':
-        return { bg: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)' }
+        return { bg: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)' }
       case 'pending_testing':
-        return { bg: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)' }
+        return { bg: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)' }
       case 'completed':
         return { bg: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(255, 255, 255, 0.05)' }
       case 'failed':
@@ -70,7 +57,7 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove, onShowPrompt 
 
   return (
     <div
-      className="flex items-start gap-3 p-3 rounded-lg transition-all duration-300"
+      className={`flex items-start gap-3 p-3 transition-all duration-300${task.status === 'in_progress' ? ' task-shimmer' : ''}`}
       style={{
         background: style.bg,
         border: style.border,
@@ -82,35 +69,36 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove, onShowPrompt 
         overflow: 'hidden',
       }}
     >
-      <div className="mt-0.5">
-        <TaskStatusIcon status={task.status} />
-      </div>
       <div className="flex-1 min-w-0 relative">
-        {/* Play & Remove buttons — top right corner */}
-        {(task.status === 'pending' || task.status === 'failed') && !isRemoving && (
+        {/* Play/Pause & Remove buttons — top right corner */}
+        {!isRemoving && (
           <div className="absolute top-0 right-0 flex items-center gap-1.5">
-            <button
-              onClick={() => onRun?.(task.id)}
-              className="w-6 h-6 flex items-center justify-center rounded transition-all hover:brightness-125"
-              style={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                color: 'rgba(255, 255, 255, 0.6)',
-                paddingLeft: 1,
-              }}
-              title="Run task"
-            >
-              <svg width="8" height="10" viewBox="0 0 8 10" fill="currentColor">
-                <path d="M1 0.5a.5.5 0 0 1 .77-.42l5.73 3.57a.5.5 0 0 1 0 .84L1.77 8.06A.5.5 0 0 1 1 7.64V0.5Z" />
-              </svg>
-            </button>
+            {task.status === 'in_progress' ? (
+              <button
+                onClick={() => onStop?.(task.id)}
+                className="w-6 h-6 flex items-center justify-center transition-all text-white/40 hover:text-white cursor-pointer"
+                title="Pause task"
+              >
+                <svg width="8" height="10" viewBox="0 0 8 10" fill="currentColor">
+                  <rect x="0" y="0" width="2.5" height="10" rx="0.5" />
+                  <rect x="5.5" y="0" width="2.5" height="10" rx="0.5" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={() => onRun?.(task.id)}
+                disabled={task.status === 'completed' || task.status === 'pending_testing'}
+                className="w-6 h-6 flex items-center justify-center transition-all text-white/40 hover:text-white pl-px cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
+                title="Run task"
+              >
+                <svg width="8" height="10" viewBox="0 0 8 10" fill="currentColor">
+                  <path d="M1 0.5a.5.5 0 0 1 .77-.42l5.73 3.57a.5.5 0 0 1 0 .84L1.77 8.06A.5.5 0 0 1 1 7.64V0.5Z" />
+                </svg>
+              </button>
+            )}
             <button
               onClick={() => onRemove?.(task.id)}
-              className="w-6 h-6 flex items-center justify-center rounded transition-all hover:text-white/70"
-              style={{
-                background: 'transparent',
-                color: 'rgba(255, 255, 255, 0.35)',
-              }}
+              className="w-6 h-6 flex items-center justify-center transition-all text-white/40 hover:text-white cursor-pointer"
               title="Remove task"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -123,7 +111,7 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove, onShowPrompt 
         {/* Description - truncated to 2 lines, expandable */}
         <div className="mb-1">
           <div
-            className="text-white text-xs font-medium whitespace-pre-wrap pr-14"
+            className="text-white text-sm font-medium whitespace-pre-wrap pr-14"
             style={{ wordBreak: 'break-word' }}
           >
             {truncatedDescription}
@@ -148,59 +136,54 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove, onShowPrompt 
           )}
         </div>
 
-        {/* Prompt button - opens modal */}
-        <div className="mt-2">
-          <button
-            onClick={() => task.prompt && onShowPrompt?.(task)}
-            disabled={!task.prompt}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              color: 'rgba(255, 255, 255, 0.5)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-            }}
-          >
-            <ChatBubbleIcon width={12} height={12} />
-            <span>Agent Prompt</span>
-          </button>
-        </div>
-
-        {task.assignedAgentId && (
-          <div className="text-xs text-white/40 mt-1">
-            Agent: {task.assignedAgentId}
-          </div>
-        )}
-        {task.error && (
-          <div className="text-xs text-red-400 mt-1">
-            {task.error}
-          </div>
-        )}
-
-        {/* Action buttons for pending_testing status */}
-        {task.status === 'pending_testing' && !isRemoving && (
-          <div className="flex gap-2 mt-2">
+        {/* Prompt button and resolve */}
+        <div className="flex items-center gap-2 mt-2">
+          {task.status === 'pending' || task.status === 'failed' ? (
+            <button
+              onClick={() => task.prompt && onShowPrompt?.(task)}
+              disabled={!task.prompt}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: 'rgba(255, 255, 255, 0.5)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <ChatBubbleIcon width={12} height={12} />
+              <span>Agent Prompt</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => task.prompt && onShowPrompt?.(task)}
+              disabled={!task.prompt}
+              className="w-6 h-6 flex items-center justify-center transition-all text-white/40 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+              title="View agent prompt"
+            >
+              <ChatBubbleIcon width={12} height={12} />
+            </button>
+          )}
+          {task.status === 'pending_testing' && !isRemoving && (
             <button
               onClick={handleMarkResolved}
-              className="px-2 py-1 text-xs rounded transition-colors"
+              className="px-2 py-1 text-xs transition-colors"
               style={{
-                background: 'rgba(34, 197, 94, 0.2)',
-                color: 'rgb(74, 222, 128)',
-                border: '1px solid rgba(34, 197, 94, 0.3)',
+                background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
+                color: 'rgb(114, 222, 128)',
+                border: '1px solid rgba(34, 197, 94, 0.2)',
               }}
             >
               Mark Resolved
             </button>
-            <button
-              onClick={() => onRetry?.(task.id)}
-              className="px-2 py-1 text-xs rounded transition-colors"
-              style={{
-                background: 'rgba(239, 68, 68, 0.2)',
-                color: 'rgb(248, 113, 113)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-              }}
-            >
-              Retry
-            </button>
+          )}
+        </div>
+
+        {task.error && (
+          <div className="text-xs text-red-400 mt-1">
+            {task.error}
           </div>
         )}
       </div>
@@ -210,7 +193,8 @@ function TaskRow({ task, onMarkResolved, onRetry, onRun, onRemove, onShowPrompt 
 
 export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
   const [modalPrompt, setModalPrompt] = useState<Task | null>(null)
-  const { currentPlan, generatePrompts, executePlan, buildPlan, cancelPlan, markTaskResolved, retryTask, runTask, removeTask } = useGekto()
+  const { currentPlan, generatePrompts, executePlan, buildPlan, cancelPlan, markTaskResolved, runTask, removeTask } = useGekto()
+  const { killAgent } = useAgent()
   if (!currentPlan) return null
 
   const completedCount = currentPlan.tasks.filter(t => t.status === 'completed').length
@@ -240,12 +224,12 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
       }}
     >
       <div
-        className="flex flex-col rounded-lg overflow-hidden"
+        className="flex flex-col overflow-hidden"
         style={{
           background: 'linear-gradient(135deg, rgb(35, 35, 45), rgb(45, 45, 55))',
           backdropFilter: 'blur(12px) saturate(180%)',
           WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-          border: '1px solid rgba(255, 255, 255, 0.18)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
         }}
       >
         {/* Header */}
@@ -255,51 +239,16 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
         >
           <div className="flex items-center gap-2">
             <span className="text-white font-medium text-sm">Execution Plan</span>
-            {currentPlan.status === 'planning' && (
-              <span className="text-xs px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
-                Planning...
-              </span>
-            )}
-            {currentPlan.status === 'ready' && (
-              <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                Ready
-              </span>
-            )}
-            {currentPlan.status === 'generating_prompts' && (
-              <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-400">
-                Generating Prompts...
-              </span>
-            )}
-            {currentPlan.status === 'prompts_ready' && (
-              <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                Prompts Ready
-              </span>
-            )}
-            {currentPlan.status === 'executing' && (
-              <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400">
-                Executing
-              </span>
-            )}
-            {currentPlan.status === 'completed' && (
-              <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400">
-                Completed
-              </span>
-            )}
-            {currentPlan.status === 'failed' && (
-              <span className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">
-                Failed
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-2">
             {showBuildButton && (
               <button
                 onClick={() => buildPlan()}
-                className="px-3 py-1 rounded-md text-xs font-medium transition-colors"
+                className="px-3 py-1 text-xs font-medium transition-colors"
                 style={{
-                  background: 'rgba(34, 197, 94, 0.2)',
-                  color: 'rgb(74, 222, 128)',
-                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                  background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
+                  color: 'rgb(114, 222, 128)',
+                  border: '1px solid rgba(34, 197, 94, 0.2)',
                 }}
               >
                 Build
@@ -307,7 +256,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             )}
             <button
               onClick={onClose}
-              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
+              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10"
             >
               ✕
             </button>
@@ -346,7 +295,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
                 className="h-full rounded-full transition-all duration-300"
                 style={{
                   width: `${promptProgress}%`,
-                  background: 'linear-gradient(90deg, #a855f7, #c084fc)',
+                  background: 'linear-gradient(90deg, #22c55e, #4ade80)',
                 }}
               />
             </div>
@@ -360,7 +309,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
               <span>Progress</span>
               <span>{completedCount}/{totalCount}</span>
               {pendingTestingCount > 0 && (
-                <span className="text-yellow-400">({pendingTestingCount} pending review)</span>
+                <span className="text-green-300">({pendingTestingCount} pending review)</span>
               )}
             </div>
             <div
@@ -404,8 +353,11 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
                 key={task.id}
                 task={task}
                 onMarkResolved={markTaskResolved}
-                onRetry={retryTask}
                 onRun={runTask}
+                onStop={(taskId) => {
+                  const t = currentPlan.tasks.find(t => t.id === taskId)
+                  if (t?.assignedAgentId) killAgent(t.assignedAgentId)
+                }}
                 onRemove={removeTask}
                 onShowPrompt={setModalPrompt}
               />
@@ -422,18 +374,18 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             <>
               <button
                 onClick={() => generatePrompts()}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-2 text-sm font-medium transition-colors"
                 style={{
-                  background: 'rgba(168, 85, 247, 0.2)',
-                  color: '#c084fc',
-                  border: '1px solid rgba(168, 85, 247, 0.3)',
+                  background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
+                  color: 'rgb(114, 222, 128)',
+                  border: '1px solid rgba(34, 197, 94, 0.2)',
                 }}
               >
                 Generate Prompts
               </button>
               <button
                 onClick={cancelPlan}
-                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 text-sm font-medium transition-colors"
                 style={{
                   background: 'rgba(255, 255, 255, 0.05)',
                   color: 'rgba(255, 255, 255, 0.6)',
@@ -448,18 +400,18 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             <>
               <button
                 onClick={() => executePlan()}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-2 text-sm font-medium transition-colors"
                 style={{
-                  background: 'rgba(191, 255, 107, 0.2)',
-                  color: '#BFFF6B',
-                  border: '1px solid rgba(191, 255, 107, 0.3)',
+                  background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
+                  color: 'rgb(114, 222, 128)',
+                  border: '1px solid rgba(34, 197, 94, 0.2)',
                 }}
               >
                 Execute Plan
               </button>
               <button
                 onClick={cancelPlan}
-                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 text-sm font-medium transition-colors"
                 style={{
                   background: 'rgba(255, 255, 255, 0.05)',
                   color: 'rgba(255, 255, 255, 0.6)',
@@ -473,11 +425,11 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           {currentPlan.status === 'generating_prompts' && (
             <button
               disabled
-              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium opacity-50 cursor-not-allowed"
+              className="flex-1 px-4 py-2 text-sm font-medium opacity-50 cursor-not-allowed"
               style={{
-                background: 'rgba(168, 85, 247, 0.1)',
-                color: '#c084fc',
-                border: '1px solid rgba(168, 85, 247, 0.2)',
+                background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
+                color: 'rgb(114, 222, 128)',
+                border: '1px solid rgba(34, 197, 94, 0.2)',
               }}
             >
               Generating Prompts ({promptsGeneratedCount}/{totalCount})
@@ -486,7 +438,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           {currentPlan.status === 'executing' && (
             <button
               onClick={cancelPlan}
-              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              className="flex-1 px-4 py-2 text-sm font-medium transition-colors"
               style={{
                 background: 'rgba(239, 68, 68, 0.1)',
                 color: 'rgba(239, 68, 68, 0.8)',
@@ -499,7 +451,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           {(currentPlan.status === 'completed' || currentPlan.status === 'failed') && (
             <button
               onClick={cancelPlan}
-              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              className="flex-1 px-4 py-2 text-sm font-medium transition-colors"
               style={{
                 background: 'rgba(255, 255, 255, 0.05)',
                 color: 'rgba(255, 255, 255, 0.6)',
@@ -522,7 +474,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           <div className="absolute inset-0" style={{ background: 'rgba(0, 0, 0, 0.7)' }} />
           <div className="flex items-center justify-center w-full h-full">
             <div
-              className="relative rounded-2xl overflow-hidden flex flex-col"
+              className="relative overflow-hidden flex flex-col"
               onClick={e => e.stopPropagation()}
               style={{
                 width: 700,
@@ -531,8 +483,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
                 background: 'linear-gradient(135deg, rgb(35, 35, 45), rgb(45, 45, 55))',
                 backdropFilter: 'blur(12px) saturate(180%)',
                 WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-                border: '1px solid rgba(255, 255, 255, 0.18)',
-              }}
+                    }}
             >
               {/* Modal header */}
               <div
@@ -544,7 +495,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
                 </span>
                 <button
                   onClick={() => setModalPrompt(null)}
-                  className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 shrink-0"
+                  className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10 shrink-0"
                 >
                   ✕
                 </button>

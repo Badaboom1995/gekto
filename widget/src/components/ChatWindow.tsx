@@ -23,15 +23,12 @@ const AGENT_PHRASES = [
   'Spawning...',
 ]
 
-const PLANNING_PHRASES = [
-  'Creating plan...',
-  'Researching...',
-  'Analyzing codebase...',
-  'Measuring complexity...',
+const THINKING_PHRASES = [
+  'Thinking...',
   'Gektoing...',
-  'Splitting into tasks...',
-  'Thinking hard...',
-  'Cooking up a plan...',
+  'Swirling...',
+  'Analyzing...',
+  'Lizarding...',
 ]
 
 // Default chat size
@@ -102,6 +99,7 @@ export function ChatWindow({
     getPermissionRequest,
     gektoState,
     killAgent,
+    resetAgent,
   } = useAgent()
 
   const { createPlan, currentPlan, openPlanPanel, cancelPlan, markTaskInProgress } = useGekto()
@@ -117,19 +115,18 @@ export function ChatWindow({
   const hasActivePlan = isMaster && currentPlan && currentPlan.status !== 'completed' && currentPlan.status !== 'failed'
   const isGektoLoading = isMaster && gektoState === 'loading'
 
-  // Rotating planning phrases for master
-  const [planningPhraseIndex, setPlanningPhraseIndex] = useState(0)
+  // Rotating thinking phrases for master
+  const [masterPhraseIndex, setMasterPhraseIndex] = useState(0)
   const isMasterWorking = isMaster && (sessions.get(lizardId)?.state ?? getLizardState(lizardId)) === 'working'
 
   useEffect(() => {
     if (!isMasterWorking) {
-      setPlanningPhraseIndex(0)
+      setMasterPhraseIndex(0)
       return
     }
     const interval = setInterval(() => {
-      setPlanningPhraseIndex(() => {
-        // Random index from 1 onwards (skip first phrase which is the initial one)
-        return 1 + Math.floor(Math.random() * (PLANNING_PHRASES.length - 1))
+      setMasterPhraseIndex(() => {
+        return 1 + Math.floor(Math.random() * (THINKING_PHRASES.length - 1))
       })
     }, 3000)
     return () => clearInterval(interval)
@@ -465,6 +462,9 @@ export function ChatWindow({
 
     setMessages(defaultMessages)
 
+    // Reset the server-side session (clears Claude conversation history)
+    resetAgent(lizardId)
+
     // Save cleared state to server
     try {
       await fetch(`/__gekto/api/chats/${lizardId}`, {
@@ -512,13 +512,8 @@ export function ChatWindow({
         background: `linear-gradient(135deg, rgb(35, 35, 45), rgb(45, 45, 55))`,
         backdropFilter: 'blur(12px) saturate(180%)',
         WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-        border: '1px solid rgba(255, 255, 255, 0.18)',
-        borderRadius: '8px',
-        boxShadow: `
-          0 8px 32px 0 rgba(31, 38, 135, 0.37),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.3),
-          0 0 0 1px ${color}33
-        `,
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRadius: 0,
       }}
     >
       {/* Header */}
@@ -532,14 +527,14 @@ export function ChatWindow({
           <div className="flex items-baseline gap-2">
             <span className="text-white font-medium text-sm">{title}</span>
             <span className="text-xs text-white/30">
-              {isGektoLoading ? 'Preparing' : agentState === 'working' ? 'working' : agentState === 'queued' ? 'queued' : agentState === 'error' ? 'error' : ''}
+              {agentState === 'working' ? 'thinking' : agentState === 'queued' ? 'queued' : agentState === 'error' ? 'error' : isGektoLoading ? 'preparing' : ''}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={handleClearChat}
-            className="text-white/40 hover:text-white/70 transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
+            className="text-white/40 hover:text-white/70 transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10"
             title="Clear chat"
           >
             <TrashIcon width={14} height={14} />
@@ -547,7 +542,7 @@ export function ChatWindow({
           {onClose && (
             <button
               onClick={onClose}
-              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"
+              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10"
             >
               ✕
             </button>
@@ -592,8 +587,10 @@ export function ChatWindow({
                     <div className="flex items-center gap-2 py-1">
                       <span
                         style={{
-                          color: '#4ade80',
-                          fontSize: '8px',
+                          background: 'linear-gradient(135deg, #4ade80, #22c55e)',
+                          WebkitBackgroundClip: 'text',
+                          WebkitTextFillColor: 'transparent',
+                          fontSize: '14px',
                           animation: isRunning ? 'blink-triangle 1.2s ease-in-out infinite' : 'none',
                         }}
                       >
@@ -632,7 +629,7 @@ export function ChatWindow({
             {/* System message */}
             {message.sender === 'system' ? (
               <div className="flex items-center gap-2 py-1">
-                <span style={{ color: '#4ade80', fontSize: '8px' }}>◆</span>
+                <span style={{ color: '#4ade80', fontSize: '14px' }}>◆</span>
                 <span className="font-mono text-xs" style={{ color: 'rgba(134, 239, 172, 0.6)' }}>{message.text}</span>
               </div>
             ) : (
@@ -678,7 +675,7 @@ export function ChatWindow({
                       ol: ({ children }) => <ol className="list-decimal list-inside mb-1">{children}</ol>,
                       li: ({ children }) => <li className="leading-tight">{children}</li>,
                       a: ({ href, children }) => (
-                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">
                           {children}
                         </a>
                       ),
@@ -728,13 +725,13 @@ export function ChatWindow({
               <div className="flex gap-2 mt-3">
                 <button
                   onClick={() => handlePermissionResponse(true)}
-                  className="px-3 py-1 rounded text-xs font-medium bg-green-600 hover:bg-green-500 transition-colors"
+                  className="px-3 py-1 text-xs font-medium bg-green-600 hover:bg-green-500 transition-colors"
                 >
                   Allow
                 </button>
                 <button
                   onClick={() => handlePermissionResponse(false)}
-                  className="px-3 py-1 rounded text-xs font-medium bg-red-600 hover:bg-red-500 transition-colors"
+                  className="px-3 py-1 text-xs font-medium bg-red-600 hover:bg-red-500 transition-colors"
                 >
                   Deny
                 </button>
@@ -746,9 +743,9 @@ export function ChatWindow({
         {agentState === 'working' && !permissionRequest && !currentTool && (
           <div className="flex justify-start">
             <div className="flex items-center gap-2 py-1">
-              <span style={{ color: '#4ade80', fontSize: '8px', animation: 'blink-triangle 1.2s ease-in-out infinite' }}>◆</span>
+              <span style={{ color: '#4ade80', fontSize: '14px', animation: 'blink-triangle 1.2s ease-in-out infinite' }}>◆</span>
               <span className="tool-call-text font-mono text-xs">
-                {isMaster ? PLANNING_PHRASES[planningPhraseIndex] : AGENT_PHRASES[agentPhraseIndex]}
+                {isMaster ? THINKING_PHRASES[masterPhraseIndex] : AGENT_PHRASES[agentPhraseIndex]}
               </span>
             </div>
           </div>
@@ -761,16 +758,10 @@ export function ChatWindow({
       <div
         className="chat-input"
         style={{
-          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          background: 'rgba(255, 255, 255, 0.05)',
         }}
       >
-        <div
-          className="rounded-b-[8px]"
-          style={{
-            background: 'rgba(255, 255, 255, 0.08)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
-          }}
-        >
           <textarea
             ref={(el) => {
               textareaRef.current = el
@@ -804,40 +795,44 @@ export function ChatWindow({
           />
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex items-center gap-1">
-              <button
-                onClick={openPlanPanel}
-                disabled={!hasActivePlan}
-                className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-all hover:bg-white/20 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  color: 'rgba(255, 255, 255, 0.7)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                }}
-                title={hasActivePlan ? 'View active plan' : 'No active plan'}
-              >
-                <FileTextIcon width={12} height={12} />
-                <span>Plan</span>
-              </button>
-              {hasActivePlan && (
-                <button
-                  onClick={cancelPlan}
-                  className="flex items-center justify-center w-5 h-5 text-xs rounded transition-all hover:text-white/70"
-                  style={{
-                    background: 'transparent',
-                    color: 'rgba(255, 255, 255, 0.3)',
-                    border: 'none',
-                  }}
-                  title="Cancel plan"
-                >
-                  ✕
-                </button>
+              {isMaster && (
+                <>
+                  <button
+                    onClick={openPlanPanel}
+                    disabled={!hasActivePlan}
+                    className="flex items-center gap-1 px-2 py-1 text-xs transition-all hover:bg-white/20 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                    }}
+                    title={hasActivePlan ? 'View active plan' : 'No active plan'}
+                  >
+                    <FileTextIcon width={12} height={12} />
+                    <span>Plan</span>
+                  </button>
+                  {hasActivePlan && (
+                    <button
+                      onClick={cancelPlan}
+                      className="flex items-center justify-center w-5 h-5 text-xs transition-all hover:text-white/70"
+                      style={{
+                        background: 'transparent',
+                        color: 'rgba(255, 255, 255, 0.3)',
+                        border: 'none',
+                      }}
+                      title="Cancel plan"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </>
               )}
             </div>
             <div className="flex items-center gap-0.5">
               {agentState === 'working' ? (
                 <button
                   onClick={() => killAgent(lizardId)}
-                  className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-all hover:bg-red-500/30"
+                  className="flex items-center gap-1 px-2 py-1 text-xs transition-all hover:bg-red-500/30"
                   style={{
                     background: 'rgba(239, 68, 68, 0.15)',
                     color: 'rgba(239, 68, 68, 0.8)',
@@ -851,7 +846,7 @@ export function ChatWindow({
                 <button
                   onClick={handleSend}
                   disabled={agentState === 'error'}
-                  className="px-1.5 py-1 rounded-full text-white/50 hover:text-white transition-colors disabled:opacity-50 focus:outline-none"
+                  className="px-1.5 py-1 text-white/50 hover:text-white transition-colors disabled:opacity-50 focus:outline-none"
                   style={{
                     background: 'rgba(255, 255, 255, 0.1)',
                     border: '1px solid rgba(255, 255, 255, 0.15)',
@@ -864,7 +859,6 @@ export function ChatWindow({
               )}
             </div>
           </div>
-        </div>
       </div>
 
       {/* Resize handles */}
@@ -873,23 +867,23 @@ export function ChatWindow({
         className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
         style={{
           background: `linear-gradient(135deg, transparent 50%, ${color}44 50%)`,
-          borderRadius: '0 0 16px 0',
+          borderRadius: 0,
         }}
         onMouseDown={handleResizeStart('se')}
       />
       <div
         className="absolute top-0 right-0 w-3 h-3 cursor-ne-resize"
-        style={{ borderRadius: '0 16px 0 0' }}
+        style={{ borderRadius: 0 }}
         onMouseDown={handleResizeStart('ne')}
       />
       <div
         className="absolute top-0 left-0 w-3 h-3 cursor-nw-resize"
-        style={{ borderRadius: '16px 0 0 0' }}
+        style={{ borderRadius: 0 }}
         onMouseDown={handleResizeStart('nw')}
       />
       <div
         className="absolute bottom-0 left-0 w-3 h-3 cursor-sw-resize"
-        style={{ borderRadius: '0 0 0 16px' }}
+        style={{ borderRadius: 0 }}
         onMouseDown={handleResizeStart('sw')}
       />
       {/* Edges */}
