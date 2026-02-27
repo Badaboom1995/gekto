@@ -2,37 +2,15 @@ import { createContext, useContext, useState, useCallback, useMemo, useEffect, u
 import { useSwarm } from './SwarmContext'
 import { useAgent } from './AgentContext'
 import { useStore } from '../store/store'
+import { useServerState, type ExecutionPlan, type ExecutionPlanTask } from '../hooks/useServerState'
 
 // === Types ===
 
-// Plan statuses
 type PlanStatus = 'planning' | 'ready' | 'generating_prompts' | 'prompts_ready' | 'executing' | 'completed' | 'failed'
 type TaskStatus = 'pending' | 'in_progress' | 'pending_testing' | 'completed' | 'failed'
 
-// Task in a plan (unified view for UI)
-interface Task {
-  id: string
-  description: string
-  prompt: string
-  files: string[]
-  assignedAgentId?: string
-  status: TaskStatus
-  dependencies: string[]
-  result?: string
-  error?: string
-}
-
-// Execution plan (unified view for UI - abstracts draft vs real)
-interface ExecutionPlan {
-  id: string
-  status: PlanStatus
-  originalPrompt: string
-  reasoning?: string  // Gekto's explanation of task breakdown strategy
-  buildPrompt?: string  // Prompt to wire all components together (executed via Build button)
-  tasks: Task[]
-  createdAt: Date
-  completedAt?: Date
-}
+// Re-export plan task as Task for backward compat
+type Task = ExecutionPlanTask
 
 type ExecutionStrategy = 'parallel-files' | 'sequential' | 'hybrid'
 type Provider = 'claude-code' | 'claude-api' | 'openai' | 'local'
@@ -45,7 +23,7 @@ interface GektoConfig {
 }
 
 interface GektoContextValue {
-  // Current plan
+  // Current plan (from server state)
   currentPlan: ExecutionPlan | null
 
   // Configuration
@@ -66,10 +44,10 @@ interface GektoContextValue {
   getTaskStatus: (taskId: string) => TaskStatus | undefined
   getTaskByLizardId: (lizardId: string) => Task | undefined
   markTaskResolved: (taskId: string) => void
-  retryTask: (taskId: string) => void  // Mark as pending and open agent chat
-  runTask: (taskId: string) => void  // Manually run a single pending task
-  removeTask: (taskId: string) => void  // Remove a task from the plan
-  markTaskInProgress: (lizardId: string) => void  // Mark linked task as in_progress when message sent
+  retryTask: (taskId: string) => void
+  runTask: (taskId: string) => void
+  removeTask: (taskId: string) => void
+  markTaskInProgress: (lizardId: string) => void
 
   // Delegation
   delegatePrompt: (prompt: string) => void
@@ -101,63 +79,24 @@ interface GektoProviderProps {
   children: ReactNode
 }
 
-const PLAN_STORAGE_KEY = 'gekto-current-plan'
-
 // Accumulator for streaming text deltas from Gekto during planning
 let gektoStreamingText = ''
-
-// Load plan from localStorage
-function loadPlanFromStorage(): ExecutionPlan | null {
-  try {
-    const saved = localStorage.getItem(PLAN_STORAGE_KEY)
-    if (saved) {
-      const plan = JSON.parse(saved)
-      // Convert date strings back to Date objects
-      return {
-        ...plan,
-        createdAt: new Date(plan.createdAt),
-        completedAt: plan.completedAt ? new Date(plan.completedAt) : undefined,
-      }
-    }
-  } catch (err) {
-    console.error('[Gekto] Failed to load plan from storage:', err)
-  }
-  return null
-}
-
-// Save plan to localStorage
-function savePlanToStorage(plan: ExecutionPlan | null) {
-  try {
-    if (plan) {
-      localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(plan))
-    } else {
-      localStorage.removeItem(PLAN_STORAGE_KEY)
-    }
-  } catch (err) {
-    console.error('[Gekto] Failed to save plan to storage:', err)
-  }
-}
 
 export function GektoProvider({ children }: GektoProviderProps) {
   // Access SwarmContext for chat control
   const { openChat } = useSwarm()
 
+  // Server state — plan comes from here
+  const { state: serverState, send } = useServerState()
+  const currentPlan = serverState.plan
+
   // Get agents from store
   const storeAgents = useStore((s) => s.agents)
-  const storeCreateAgent = useStore((s) => s.createAgent)
-  const storeDeleteAgent = useStore((s) => s.deleteAgent)
-  const storeCreateTask = useStore((s) => s.createTask)
   // Access AgentContext for sending messages and WebSocket
   const { sendMessage, getWebSocket } = useAgent()
-  const [currentPlan, setCurrentPlan] = useState<ExecutionPlan | null>(() => loadPlanFromStorage())
   const [config] = useState<GektoConfig>(DEFAULT_CONFIG)
   const [isPlanPanelOpen, setIsPlanPanelOpen] = useState(false)
   const [directMode, setDirectMode] = useState(false)
-
-  // Persist plan changes to localStorage
-  useEffect(() => {
-    savePlanToStorage(currentPlan)
-  }, [currentPlan])
 
   // Send message to Gekto - server will decide if planning is needed
   const createPlan = useCallback(async (prompt: string) => {
@@ -167,7 +106,6 @@ export function GektoProvider({ children }: GektoProviderProps) {
     }
 
     // If there's already a plan in ready state, we're modifying it
-    // Otherwise create a new one
     const isModifyingPlan = currentPlan?.status === 'ready'
     const planId = isModifyingPlan ? currentPlan.id : `plan_test_${Date.now()}`
 
@@ -182,8 +120,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
       prompt,
       planId,
       mode: directMode ? 'direct' : 'plan',
-      lizards: currentAgents,  // Keep 'lizards' key for server compatibility
-      // Include existing plan context for modifications
+      lizards: currentAgents,
       existingPlan: isModifyingPlan ? {
         tasks: currentPlan.tasks.map(t => ({
           id: t.id,
@@ -196,50 +133,38 @@ export function GektoProvider({ children }: GektoProviderProps) {
       } : undefined,
     }))
   }, [getWebSocket, storeAgents, directMode, currentPlan])
-  
 
   // Generate prompts for the current plan (Step 2 — parallel LLM calls)
   const generatePrompts = useCallback(() => {
-    const plan = currentPlanRef.current
-    if (!plan || plan.status !== 'ready') return
+    if (!currentPlan || currentPlan.status !== 'ready') return
 
     const ws = getWebSocket()
     if (!ws || ws.readyState !== WebSocket.OPEN) return
 
-    setCurrentPlan(prev => prev ? { ...prev, status: 'generating_prompts' } : null)
+    // Update plan status via server
+    send({ type: 'save_state', path: 'plan.status', value: 'generating_prompts' })
 
     ws.send(JSON.stringify({
       type: 'generate_prompts',
-      planId: plan.id,
+      planId: currentPlan.id,
     }))
-  }, [getWebSocket])
+  }, [getWebSocket, currentPlan, send])
 
-  // Execute the current plan
   // Use a ref to always have the latest plan without stale closures
   const currentPlanRef = useRef(currentPlan)
   currentPlanRef.current = currentPlan
 
+  // Execute the current plan
   const executePlan = useCallback(async () => {
     const plan = currentPlanRef.current
-    if (!plan) {
-      console.warn('[Gekto] executePlan: no current plan')
-      return
-    }
-    if (plan.status !== 'prompts_ready') {
-      console.warn('[Gekto] executePlan: plan status is', plan.status, '(expected prompts_ready)')
-      return
-    }
+    if (!plan) return
+    if (plan.status !== 'prompts_ready') return
 
     const ws = getWebSocket()
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.warn('[Gekto] executePlan: WebSocket not open')
-      return
-    }
-
-    console.log('[Gekto] executePlan: starting execution for plan', plan.id)
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
 
     // Update plan status to executing
-    setCurrentPlan(prev => prev ? { ...prev, status: 'executing' } : null)
+    send({ type: 'save_state', path: 'plan.status', value: 'executing' })
 
     // Notify server that execution started
     ws.send(JSON.stringify({
@@ -247,44 +172,41 @@ export function GektoProvider({ children }: GektoProviderProps) {
       planId: plan.id,
     }))
 
-    // Find tasks that can run (no dependencies or all dependencies completed)
+    // Find tasks that can run
     const completedTaskIds = new Set(
       plan.tasks.filter(t => t.status === 'completed').map(t => t.id)
     )
 
     const tasksToRun = plan.tasks.filter(task => {
       if (task.status !== 'pending') return false
-      // All dependencies must be completed
       return task.dependencies.every(depId => completedTaskIds.has(depId))
     })
-
-    console.log('[Gekto] executePlan: tasks to run:', tasksToRun.length)
 
     // Create agents and tasks in store for each task to run
     const taskAssignments: { taskId: string; agentId: string; prompt: string }[] = []
     for (const task of tasksToRun) {
-      // Create agent ID
       const agentId = `worker_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
-      // Create real task in store
-      storeCreateTask({
-        id: task.id,
-        name: task.description.slice(0, 50),
-        description: task.description,
-        prompt: task.prompt,
-        status: 'in_progress',
-        planId: plan.id,
-        files: task.files,
-        assignedAgentId: agentId,
-        dependencies: task.dependencies,
-      })
-
-      // Create agent in store (SwarmContext auto-creates visual)
-      storeCreateAgent({
-        id: agentId,
-        taskId: task.id,
-        personaId: 'plain',
-        status: 'working',
+      // Create task+agent in server state
+      send({
+        type: 'create_task_and_agent',
+        task: {
+          id: task.id,
+          name: task.description.slice(0, 50),
+          description: task.description,
+          prompt: task.prompt,
+          status: 'in_progress',
+          planId: plan.id,
+          files: task.files,
+          assignedAgentId: agentId,
+          dependencies: task.dependencies,
+        },
+        agent: {
+          id: agentId,
+          taskId: task.id,
+          personaId: 'plain',
+          status: 'working',
+        },
       })
 
       taskAssignments.push({ taskId: task.id, agentId, prompt: task.prompt })
@@ -298,24 +220,9 @@ export function GektoProvider({ children }: GektoProviderProps) {
       }))
     }
 
-    // Update local plan state
-    setCurrentPlan(prev => {
-      if (!prev) return null
-      const assignmentMap = new Map(taskAssignments.map(a => [a.taskId, a.agentId]))
-      return {
-        ...prev,
-        tasks: prev.tasks.map(t =>
-          assignmentMap.has(t.id)
-            ? { ...t, status: 'in_progress' as TaskStatus, assignedAgentId: assignmentMap.get(t.id) }
-            : t
-        ),
-      }
-    })
-
     // Send task prompts to workers (with delay to ensure state is updated)
     setTimeout(() => {
       for (const { taskId, agentId, prompt } of taskAssignments) {
-        // Enrich prompt with task context so agent knows what it's working on
         const taskObj = plan.tasks.find(t => t.id === taskId)
         const taskContext = [
           `[TASK_CONTEXT]`,
@@ -330,7 +237,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
         sendMessage(agentId, taskContext + prompt)
       }
     }, 100)
-  }, [getWebSocket, storeCreateTask, storeCreateAgent, sendMessage])
+  }, [getWebSocket, sendMessage, send])
 
   // Build: wire all components together using the plan's buildPrompt
   const buildPlan = useCallback(async () => {
@@ -342,28 +249,28 @@ export function GektoProvider({ children }: GektoProviderProps) {
     const agentId = `worker_build_${Date.now()}`
     const taskId = `${currentPlan.id.replace(/^plan_/, '')}_build`
 
-    // Create task in store
-    storeCreateTask({
-      id: taskId,
-      name: 'Build: wire components',
-      description: 'Wire all components together',
-      prompt: currentPlan.buildPrompt,
-      status: 'in_progress',
-      planId: currentPlan.id,
-      files: [],
-      assignedAgentId: agentId,
-      dependencies: [],
+    // Create task+agent in server state
+    send({
+      type: 'create_task_and_agent',
+      task: {
+        id: taskId,
+        name: 'Build: wire components',
+        description: 'Wire all components together',
+        prompt: currentPlan.buildPrompt,
+        status: 'in_progress',
+        planId: currentPlan.id,
+        files: [],
+        assignedAgentId: agentId,
+        dependencies: [],
+      },
+      agent: {
+        id: agentId,
+        taskId,
+        personaId: 'plain',
+        status: 'working',
+      },
     })
 
-    // Create agent in store
-    storeCreateAgent({
-      id: agentId,
-      taskId,
-      personaId: 'plain',
-      status: 'working',
-    })
-
-    // Notify server about task start
     ws.send(JSON.stringify({
       type: 'task_started',
       planId: currentPlan.id,
@@ -371,26 +278,21 @@ export function GektoProvider({ children }: GektoProviderProps) {
       lizardId: agentId,
     }))
 
-    // Add the build task to the plan UI
-    setCurrentPlan(prev => {
-      if (!prev) return null
-      return {
-        ...prev,
-        status: 'executing',
-        tasks: [
-          ...prev.tasks,
-          {
-            id: taskId,
-            description: 'Build: wire components together',
-            prompt: prev.buildPrompt || '',
-            files: [],
-            status: 'in_progress' as TaskStatus,
-            dependencies: [],
-            assignedAgentId: agentId,
-          },
-        ],
-      }
-    })
+    // Add build task to plan
+    const updatedTasks = [
+      ...currentPlan.tasks,
+      {
+        id: taskId,
+        description: 'Build: wire components together',
+        prompt: currentPlan.buildPrompt || '',
+        files: [],
+        status: 'in_progress' as TaskStatus,
+        dependencies: [],
+        assignedAgentId: agentId,
+      },
+    ]
+    send({ type: 'save_state', path: 'plan.tasks', value: updatedTasks })
+    send({ type: 'save_state', path: 'plan.status', value: 'executing' })
 
     // Send prompt to worker with task context
     setTimeout(() => {
@@ -404,7 +306,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
 
       sendMessage(agentId, taskContext + currentPlan.buildPrompt!)
     }, 100)
-  }, [currentPlan, getWebSocket, storeCreateTask, storeCreateAgent, sendMessage])
+  }, [currentPlan, getWebSocket, sendMessage, send])
 
   // Cancel the current plan
   const cancelPlan = useCallback(() => {
@@ -418,9 +320,9 @@ export function GektoProvider({ children }: GektoProviderProps) {
       }))
     }
 
-    setCurrentPlan(null)
+    send({ type: 'save_state', path: 'plan', value: null })
     setIsPlanPanelOpen(false)
-  }, [currentPlan, getWebSocket])
+  }, [currentPlan, getWebSocket, send])
 
   // Get status of a specific task
   const getTaskStatus = useCallback((taskId: string): TaskStatus | undefined => {
@@ -434,72 +336,46 @@ export function GektoProvider({ children }: GektoProviderProps) {
 
   // Mark a task as resolved - removes task and linked agent
   const markTaskResolved = useCallback((taskId: string) => {
-    // Get agentId before removing task
     const task = currentPlan?.tasks.find(t => t.id === taskId)
     const agentId = task?.assignedAgentId
 
-    setCurrentPlan(prev => {
-      if (!prev) return null
-      // Remove the task instead of marking completed
-      const remainingTasks = prev.tasks.filter(t => t.id !== taskId)
-      const allDone = remainingTasks.length === 0
-      return {
-        ...prev,
-        tasks: remainingTasks,
-        status: allDone ? 'completed' : prev.status,
-        completedAt: allDone ? new Date() : undefined,
-      }
+    send({
+      type: 'mark_task_resolved',
+      taskId,
+      agentId,
     })
-
-    // Remove the linked agent from store (SwarmContext auto-removes visual)
-    if (agentId) {
-      storeDeleteAgent(agentId)
-    }
-  }, [currentPlan, storeDeleteAgent])
+  }, [currentPlan, send])
 
   // Remove a task from the plan entirely
   const removeTask = useCallback((taskId: string) => {
     const task = currentPlan?.tasks.find(t => t.id === taskId)
     const agentId = task?.assignedAgentId
 
-    setCurrentPlan(prev => {
-      if (!prev) return null
-      const remainingTasks = prev.tasks.filter(t => t.id !== taskId)
-      const allDone = remainingTasks.length === 0
-      return {
-        ...prev,
-        tasks: remainingTasks,
-        status: allDone ? 'completed' : prev.status,
-        completedAt: allDone ? new Date() : undefined,
-      }
+    send({
+      type: 'mark_task_resolved',
+      taskId,
+      agentId,
     })
+  }, [currentPlan, send])
 
-    if (agentId) {
-      storeDeleteAgent(agentId)
-    }
-  }, [currentPlan, storeDeleteAgent])
-
-  // Retry a task - reset to pending and open agent chat for user to provide feedback
+  // Retry a task
   const retryTask = useCallback((taskId: string) => {
-    // Get agentId before state update (currentPlan is captured in closure)
     const task = currentPlan?.tasks.find(t => t.id === taskId)
     const agentId = task?.assignedAgentId
 
-    setCurrentPlan(prev => {
-      if (!prev) return null
-      return {
-        ...prev,
-        tasks: prev.tasks.map(t =>
-          t.id === taskId ? { ...t, status: 'pending' as TaskStatus, error: undefined, result: undefined } : t
-        ),
+    if (currentPlan) {
+      const taskIdx = currentPlan.tasks.findIndex(t => t.id === taskId)
+      if (taskIdx >= 0) {
+        send({ type: 'save_state', path: `plan.tasks.${taskIdx}.status`, value: 'pending' })
+        send({ type: 'save_state', path: `plan.tasks.${taskIdx}.error`, value: undefined })
+        send({ type: 'save_state', path: `plan.tasks.${taskIdx}.result`, value: undefined })
       }
-    })
+    }
 
-    // Open chat for the assigned agent so user can provide feedback
     if (agentId) {
       openChat(agentId, 'task')
     }
-  }, [currentPlan, openChat])
+  }, [currentPlan, openChat, send])
 
   // Manually run a single pending task
   const runTask = useCallback((taskId: string) => {
@@ -513,28 +389,28 @@ export function GektoProvider({ children }: GektoProviderProps) {
 
     const agentId = `worker_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
-    // Create task in store
-    storeCreateTask({
-      id: task.id,
-      name: task.description.slice(0, 50),
-      description: task.description,
-      prompt: task.prompt,
-      status: 'in_progress',
-      planId: currentPlan.id,
-      files: task.files,
-      assignedAgentId: agentId,
-      dependencies: task.dependencies,
+    // Create task+agent in server state
+    send({
+      type: 'create_task_and_agent',
+      task: {
+        id: task.id,
+        name: task.description.slice(0, 50),
+        description: task.description,
+        prompt: task.prompt,
+        status: 'in_progress',
+        planId: currentPlan.id,
+        files: task.files,
+        assignedAgentId: agentId,
+        dependencies: task.dependencies,
+      },
+      agent: {
+        id: agentId,
+        taskId: task.id,
+        personaId: 'plain',
+        status: 'working',
+      },
     })
 
-    // Create agent in store
-    storeCreateAgent({
-      id: agentId,
-      taskId: task.id,
-      personaId: 'plain',
-      status: 'working',
-    })
-
-    // Notify server
     ws.send(JSON.stringify({
       type: 'task_started',
       planId: currentPlan.id,
@@ -542,19 +418,10 @@ export function GektoProvider({ children }: GektoProviderProps) {
       lizardId: agentId,
     }))
 
-    // Update plan state
-    setCurrentPlan(prev => {
-      if (!prev) return null
-      return {
-        ...prev,
-        status: prev.status === 'ready' ? 'executing' : prev.status,
-        tasks: prev.tasks.map(t =>
-          t.id === taskId
-            ? { ...t, status: 'in_progress' as TaskStatus, assignedAgentId: agentId, error: undefined }
-            : t
-        ),
-      }
-    })
+    // Update plan status
+    if (currentPlan.status === 'ready') {
+      send({ type: 'save_state', path: 'plan.status', value: 'executing' })
+    }
 
     // Send prompt to worker with task context
     setTimeout(() => {
@@ -570,30 +437,21 @@ export function GektoProvider({ children }: GektoProviderProps) {
 
       sendMessage(agentId, taskContext + task.prompt)
     }, 100)
-  }, [currentPlan, getWebSocket, storeCreateTask, storeCreateAgent, sendMessage])
+  }, [currentPlan, getWebSocket, sendMessage, send])
 
   // Mark a task as in_progress when user sends message to linked worker
   const markTaskInProgress = useCallback((agentId: string) => {
-    setCurrentPlan(prev => {
-      if (!prev) return null
-      const task = prev.tasks.find(t => t.assignedAgentId === agentId)
-      // Only update if task is in pending state (after retry)
-      if (!task || task.status !== 'pending') return prev
-      return {
-        ...prev,
-        tasks: prev.tasks.map(t =>
-          t.assignedAgentId === agentId ? { ...t, status: 'in_progress' as TaskStatus } : t
-        ),
-      }
-    })
-  }, [])
+    if (!currentPlan) return
+    const taskIdx = currentPlan.tasks.findIndex(t => t.assignedAgentId === agentId)
+    if (taskIdx >= 0 && currentPlan.tasks[taskIdx].status === 'pending') {
+      send({ type: 'save_state', path: `plan.tasks.${taskIdx}.status`, value: 'in_progress' })
+    }
+  }, [currentPlan, send])
 
   // Delegate a follow-up prompt to appropriate agent
   const delegatePrompt = useCallback((prompt: string) => {
     const ws = getWebSocket()
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return
-    }
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
 
     ws.send(JSON.stringify({
       type: 'delegate_prompt',
@@ -607,7 +465,6 @@ export function GektoProvider({ children }: GektoProviderProps) {
   const closePlanPanel = useCallback(() => setIsPlanPanelOpen(false), [])
 
   // Handle incoming WebSocket messages for plan updates
-  // This will be called from AgentContext when it receives plan-related messages
   const handlePlanMessage = useCallback((msg: {
     type: string
     plan?: ExecutionPlan
@@ -626,14 +483,19 @@ export function GektoProvider({ children }: GektoProviderProps) {
   }) => {
     switch (msg.type) {
       case 'planning_started':
-        // Immediately show plan panel with planning state
+        // Show plan panel — plan state will arrive via state_diff
         if (!currentPlan || currentPlan.status === 'completed' || currentPlan.status === 'failed') {
-          setCurrentPlan({
-            id: msg.planId,
-            status: 'planning',
-            originalPrompt: msg.prompt ?? '',
-            tasks: [],
-            createdAt: new Date(),
+          // Set a temporary planning state on the server
+          send({
+            type: 'save_state',
+            path: 'plan',
+            value: {
+              id: msg.planId,
+              status: 'planning',
+              originalPrompt: msg.prompt ?? '',
+              tasks: [],
+              createdAt: new Date().toISOString(),
+            },
           })
         }
         setIsPlanPanelOpen(true)
@@ -657,9 +519,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
         break
 
       case 'gekto_chat':
-        // Reset streaming accumulator — planning phase is done
         gektoStreamingText = ''
-        // Add the response to chat via the message listener system
         if (msg.message) {
           const listener = (window as unknown as { __agentMessageListeners?: Map<string, (message: { id: string; text: string; sender: 'bot'; timestamp: Date }) => void> }).__agentMessageListeners?.get('master')
           if (listener) {
@@ -675,11 +535,9 @@ export function GektoProvider({ children }: GektoProviderProps) {
 
       case 'gekto_remove':
         if (msg.removedAgents && msg.removedAgents.length > 0) {
-          // Remove agents from store (SwarmContext auto-removes visuals)
           for (const agentId of msg.removedAgents) {
-            storeDeleteAgent(agentId)
+            send({ type: 'delete_agent', agentId })
           }
-          // Show confirmation in chat
           const listener = (window as unknown as { __agentMessageListeners?: Map<string, (message: { id: string; text: string; sender: 'bot'; timestamp: Date }) => void> }).__agentMessageListeners?.get('master')
           if (listener) {
             listener({
@@ -694,216 +552,93 @@ export function GektoProvider({ children }: GektoProviderProps) {
 
       case 'plan_created':
         gektoStreamingText = ''
-        if (msg.plan) {
-          // Normalize plan structure to match Test button format exactly
-          const plan = msg.plan!
-          const normalizedPlan: ExecutionPlan = {
-            id: plan.id,
-            status: 'ready',
-            originalPrompt: plan.originalPrompt,
-            buildPrompt: (plan as unknown as { buildPrompt?: string }).buildPrompt,
-            tasks: (plan.tasks || []).map((t: Partial<Task>, i: number) => ({
-              id: t.id || `${plan.id}_task_${i + 1}`,
-              description: t.description || 'Task',
-              prompt: t.prompt ?? '',
-              files: t.files || [],
-              status: 'pending' as TaskStatus,
-              dependencies: t.dependencies || [],
-            })),
-            createdAt: new Date(plan.createdAt),
-          }
-          console.log('[Gekto] Plan created:', normalizedPlan)
-          setCurrentPlan(normalizedPlan)
-          setIsPlanPanelOpen(true)
-        }
+        // Plan is already stored in server state via mutate() in agentWebSocket.ts
+        // Just open the panel
+        setIsPlanPanelOpen(true)
         break
 
       case 'plan_updated':
-        if (msg.plan) {
-          console.log('[Gekto] Plan updated:', msg.plan)
-          setCurrentPlan({
-            ...msg.plan,
-            createdAt: new Date(msg.plan.createdAt),
-            completedAt: msg.plan.completedAt ? new Date(msg.plan.completedAt) : undefined,
-          })
-        }
+        // Plan updates come via state_diff automatically
         break
 
       case 'task_started':
-        setCurrentPlan(prev => {
-          if (!prev || prev.id !== msg.planId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.id === msg.taskId
-                ? { ...t, status: 'in_progress' as TaskStatus, assignedAgentId: msg.lizardId }
-                : t
-            ),
-          }
-        })
-        break
-
       case 'task_completed':
-        // Agent thinks it's done - set to pending_testing for user to verify
-        setCurrentPlan(prev => {
-          if (!prev || prev.id !== msg.planId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.id === msg.taskId
-                ? { ...t, status: 'pending_testing' as TaskStatus, result: msg.result }
-                : t
-            ),
-          }
-        })
-        break
-
       case 'task_failed':
-        setCurrentPlan(prev => {
-          if (!prev || prev.id !== msg.planId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.id === msg.taskId
-                ? { ...t, status: 'failed' as TaskStatus, error: msg.error }
-                : t
-            ),
-            status: 'failed',
-          }
-        })
-        break
-
       case 'prompt_generated':
-        // Individual task prompt generated (from parallel Step 2)
-        setCurrentPlan(prev => {
-          if (!prev || prev.id !== msg.planId) return prev
-          return {
-            ...prev,
-            tasks: prev.tasks.map(t =>
-              t.id === msg.taskId ? { ...t, prompt: msg.prompt || t.prompt } : t
-            ),
-          }
-        })
-        break
-
       case 'prompts_ready':
-        // All prompts generated — plan ready for execution
-        setCurrentPlan(prev => {
-          if (!prev || prev.id !== msg.planId) return prev
-          return { ...prev, status: 'prompts_ready' }
-        })
-        break
-
       case 'plan_failed':
-        setCurrentPlan(prev => {
-          if (!prev || prev.id !== msg.planId) return prev
-          return { ...prev, status: 'failed' }
-        })
+        // These are all handled via state_diff from server
         break
     }
-  }, [storeDeleteAgent])
+  }, [currentPlan, send])
 
   // Handle task completion from worker agents
   const handleTaskComplete = useCallback((agentId: string, result: string, isError: boolean) => {
-    setCurrentPlan(prev => {
-      if (!prev) {
-        console.warn('[Gekto] No current plan!')
-        return null
-      }
+    // Notify server about task completion — server will update state
+    const ws = getWebSocket()
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
 
-      // Find the task assigned to this worker
-      const task = prev.tasks.find(t => t.assignedAgentId === agentId)
-      if (!task) {
-        console.warn('[Gekto] No task found for agent:', agentId)
-        return prev
-      }
+    const plan = currentPlanRef.current
+    if (!plan) return
 
-      // Set to pending_testing (not completed) - user must verify and mark as resolved
-      const updatedTasks = prev.tasks.map(t =>
+    const task = plan.tasks.find(t => t.assignedAgentId === agentId)
+    if (!task) return
+
+    ws.send(JSON.stringify({
+      type: isError ? 'task_failed' : 'task_completed',
+      planId: plan.id,
+      taskId: task.id,
+      result: isError ? undefined : result,
+      error: isError ? result : undefined,
+    }))
+
+    // Check if there are more tasks to run (with satisfied dependencies)
+    if (!isError) {
+      const updatedTasks = plan.tasks.map(t =>
         t.id === task.id
-          ? {
-              ...t,
-              status: (isError ? 'failed' : 'pending_testing') as TaskStatus,
-              result: isError ? undefined : result,
-              error: isError ? result : undefined,
-            }
+          ? { ...t, status: (isError ? 'failed' : 'pending_testing') as TaskStatus }
           : t
       )
 
-      const allCompleted = updatedTasks.every(t => t.status === 'completed')
-      const anyFailed = updatedTasks.some(t => t.status === 'failed')
+      const completedTaskIds = new Set(
+        updatedTasks.filter(t => t.status === 'completed').map(t => t.id)
+      )
 
-      // Notify server about task completion
-      const ws = getWebSocket()
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: isError ? 'task_failed' : 'task_completed',
-          planId: prev.id,
-          taskId: task.id,
-          result: isError ? undefined : result,
-          error: isError ? result : undefined,
-        }))
-      }
+      const nextTasks = updatedTasks.filter(t => {
+        if (t.status !== 'pending') return false
+        return t.dependencies.every(depId => completedTaskIds.has(depId))
+      })
 
-      // Check if there are more tasks to run (with satisfied dependencies)
-      if (!isError && !allCompleted) {
-        const completedTaskIds = new Set(
-          updatedTasks.filter(t => t.status === 'completed').map(t => t.id)
-        )
+      for (const nextTask of nextTasks) {
+        const nextAgentId = `worker_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
-        const nextTasks = updatedTasks.filter(t => {
-          if (t.status !== 'pending') return false
-          return t.dependencies.every(depId => completedTaskIds.has(depId))
-        })
-
-        // Create agents in store for next tasks (SwarmContext auto-creates visuals)
-        for (const nextTask of nextTasks) {
-          const nextAgentId = `worker_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-
-          // Create real task in store
-          storeCreateTask({
+        send({
+          type: 'create_task_and_agent',
+          task: {
             id: nextTask.id,
             name: nextTask.description.slice(0, 50),
             description: nextTask.description,
             prompt: nextTask.prompt,
             status: 'in_progress',
-            planId: prev.id,
+            planId: plan.id,
             files: nextTask.files,
             assignedAgentId: nextAgentId,
             dependencies: nextTask.dependencies,
-          })
-
-          // Create agent in store
-          storeCreateAgent({
+          },
+          agent: {
             id: nextAgentId,
             taskId: nextTask.id,
             personaId: 'plain',
             status: 'working',
-          })
+          },
+        })
 
-          // Update the task in our local state
-          updatedTasks.forEach(t => {
-            if (t.id === nextTask.id) {
-              t.status = 'in_progress'
-              t.assignedAgentId = nextAgentId
-            }
-          })
-
-          // Send task to worker with delay
-          setTimeout(() => {
-            sendMessage(nextAgentId, nextTask.prompt)
-          }, 100)
-        }
+        setTimeout(() => {
+          sendMessage(nextAgentId, nextTask.prompt)
+        }, 100)
       }
-
-      return {
-        ...prev,
-        tasks: updatedTasks,
-        status: anyFailed ? 'failed' : allCompleted ? 'completed' : prev.status,
-        completedAt: allCompleted ? new Date() : undefined,
-      }
-    })
-  }, [storeCreateTask, storeCreateAgent, sendMessage, getWebSocket])
+    }
+  }, [getWebSocket, sendMessage, send])
 
   // Expose handlers for AgentContext to call via window
   useEffect(() => {

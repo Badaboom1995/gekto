@@ -1,11 +1,14 @@
 import { LizardsSwarm } from './components/LizardsSwarm'
 import { AgentProvider } from './context/AgentContext'
+import { ServerStateProvider } from './context/ServerStateProvider'
 
 function App() {
   return (
-    <AgentProvider>
-      <LizardsSwarm />
-    </AgentProvider>
+    <ServerStateProvider>
+      <AgentProvider>
+        <LizardsSwarm />
+      </AgentProvider>
+    </ServerStateProvider>
   )
 }
 

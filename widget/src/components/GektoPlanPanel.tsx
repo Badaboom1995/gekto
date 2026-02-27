@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChatBubbleIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons'
-import { useGekto, type Task, type TaskStatus } from '../context/GektoContext'
+import { useGekto, type Task } from '../context/GektoContext'
 import { useAgent } from '../context/AgentContext'
 
 interface GektoPlanPanelProps {

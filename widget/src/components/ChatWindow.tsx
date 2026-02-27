@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
 import { useGekto } from '../context/GektoContext'
 import { useStore } from '../store/store'
+import { getServerState } from '../hooks/useServerState'
 
 const MASTER_ID = 'master'
 const CHAT_SIZE_KEY = 'gekto-chat-size'
@@ -179,7 +180,7 @@ export function ChatWindow({
   // Register as message listener
   useAgentMessageListener(lizardId, handleAgentMessage)
 
-  // Load chat history on mount - from task.chatHistory if available, else REST API
+  // Load chat history on mount - from server state chats
   useEffect(() => {
     if (historyLoaded) return
 
@@ -187,90 +188,68 @@ export function ChatWindow({
       ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
       : 'Hi! How can I help you today?'
 
-    // For agents with tasks, use task.chatHistory from store
-    if (task?.chatHistory && task.chatHistory.length > 0) {
-      setMessages(task.chatHistory)
+    // Chat history is now stored in server state under chats[chatKey]
+    const chatKey = agent?.taskId || lizardId
+    const state = getServerState()
+    const saved = state.chats[chatKey]
+
+    if (saved && saved.length > 0) {
+      setMessages(saved.map(m => ({
+        ...m,
+        timestamp: typeof m.timestamp === 'string' ? new Date(m.timestamp) : m.timestamp,
+        toolUse: m.toolUse ? {
+          ...m.toolUse,
+          startTime: typeof m.toolUse.startTime === 'string' ? new Date(m.toolUse.startTime) : m.toolUse.startTime,
+          endTime: m.toolUse.endTime
+            ? (typeof m.toolUse.endTime === 'string' ? new Date(m.toolUse.endTime) : m.toolUse.endTime)
+            : undefined,
+        } : undefined,
+      })) as Message[])
       setHistoryLoaded(true)
-      return
+    } else {
+      setMessages([{
+        id: '1',
+        text: greeting,
+        sender: 'bot',
+        timestamp: new Date(),
+      }])
+      setHistoryLoaded(true)
     }
+  }, [lizardId, agent, historyLoaded])
 
-    // Fall back to REST API (for master or agents without tasks)
-    fetch(`/__gekto/api/chats/${lizardId}`)
-      .then(res => res.json())
-      .then((saved: Array<{
-        id: string
-        text: string
-        sender: 'user' | 'bot'
-        timestamp: string
-        isTerminal?: boolean
-        toolUse?: {
-          tool: string
-          input?: string
-          fullInput?: Record<string, unknown>
-          status: 'running' | 'completed'
-          startTime: string
-          endTime?: string
-        }
-      }>) => {
-        if (saved && saved.length > 0) {
-          setMessages(saved.map(m => ({
-            ...m,
-            timestamp: new Date(m.timestamp),
-            toolUse: m.toolUse ? {
-              ...m.toolUse,
-              startTime: new Date(m.toolUse.startTime),
-              endTime: m.toolUse.endTime ? new Date(m.toolUse.endTime) : undefined,
-            } : undefined,
-          })))
-        } else {
-          setMessages([{
-            id: '1',
-            text: greeting,
-            sender: 'bot',
-            timestamp: new Date(),
-          }])
-        }
-        setHistoryLoaded(true)
-      })
-      .catch(() => {
-        setMessages([{
-          id: '1',
-          text: greeting,
-          sender: 'bot',
-          timestamp: new Date(),
-        }])
-        setHistoryLoaded(true)
-      })
-  }, [lizardId, task, historyLoaded])
-
-  // Save chat history when messages change (only for master/agents without tasks)
-  // Agents with tasks use store persistence via AgentContext
+  // Save chat history when messages change (for master/agents without tasks)
+  // Chat messages for agents with tasks are saved via AgentContext
   useEffect(() => {
     if (!historyLoaded || messages.length === 0) return
-    // Skip REST API save if using store (agent has task)
+    // Skip if agent has a task (saved by AgentContext)
     if (agent?.taskId) return
 
+    const toIso = (v: Date | string): string => v instanceof Date ? v.toISOString() : String(v)
     const toSave = messages.map(m => ({
       id: m.id,
       text: m.text,
       sender: m.sender,
-      timestamp: m.timestamp.toISOString(),
+      timestamp: toIso(m.timestamp),
       isTerminal: m.isTerminal,
       toolUse: m.toolUse ? {
         tool: m.toolUse.tool,
         input: m.toolUse.input,
         fullInput: m.toolUse.fullInput,
         status: m.toolUse.status,
-        startTime: m.toolUse.startTime.toISOString(),
-        endTime: m.toolUse.endTime?.toISOString(),
+        startTime: toIso(m.toolUse.startTime),
+        endTime: m.toolUse.endTime ? toIso(m.toolUse.endTime) : undefined,
       } : undefined,
     }))
 
-    fetch(`/__gekto/api/chats/${lizardId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(toSave),
-    }).catch(err => console.error('[Chat] Failed to save history:', err))
+    // Save to server via WS
+    const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'save_chat',
+        agentId: lizardId,
+        messages: toSave,
+      }))
+    }
   }, [messages, lizardId, historyLoaded, agent?.taskId])
 
   // Auto-scroll to bottom on new messages or state changes (instant on initial load, smooth after)
@@ -465,18 +444,17 @@ export function ChatWindow({
     // Reset the server-side session (clears Claude conversation history)
     resetAgent(lizardId)
 
-    // Save cleared state to server
-    try {
-      await fetch(`/__gekto/api/chats/${lizardId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(defaultMessages.map(m => ({
+    // Save cleared state to server via WS
+    const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'save_chat',
+        agentId: lizardId,
+        messages: defaultMessages.map(m => ({
           ...m,
-          timestamp: m.timestamp.toISOString(),
-        }))),
-      })
-    } catch (err) {
-      console.error('[Chat] Failed to clear history:', err)
+          timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : String(m.timestamp),
+        })),
+      }))
     }
   }
 

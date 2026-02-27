@@ -6,6 +6,7 @@ import { IframeShapeUtil } from './IframeShape'
 import { DiffModal } from './DiffModal'
 import { useAgentShapeSync } from './useAgentShapeSync'
 import { useStore } from '../../store/store'
+import { useSwarm } from '../../context/SwarmContext'
 import { useAgent } from '../../context/AgentContext'
 import { ChatWindow } from '../ChatWindow'
 
@@ -103,8 +104,7 @@ export function openWhiteboard() {
 }
 
 export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: WhiteboardCurtainProps) {
-  const isOpen = useStore((s) => s.isWhiteboardOpen)
-  const setWhiteboardOpen = useStore((s) => s.setWhiteboardOpen)
+  const { isWhiteboardOpen: isOpen, setWhiteboardOpen } = useSwarm()
 
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)

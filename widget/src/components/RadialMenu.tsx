@@ -67,7 +67,6 @@ export function RadialMenu({
   items,
   isVisible,
   size = 90,
-  side = 'left',
 }: RadialMenuProps) {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [holdingItem, setHoldingItem] = useState<string | null>(null)

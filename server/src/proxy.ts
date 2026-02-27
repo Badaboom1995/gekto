@@ -217,7 +217,7 @@ async function main() {
   const { parseArgs } = await import('util')
   const { setupTerminalWebSocket } = await import('./terminal.js')
   const { setupAgentWebSocket } = await import('./agents/agentWebSocket.js')
-  const { initStore, getData, setData } = await import('./store.js')
+  const { initState } = await import('./state.js')
 
   // Prevent EPIPE and other uncaught errors from crashing the server
   process.on('uncaughtException', (err) => {
@@ -245,8 +245,8 @@ async function main() {
   DEV_MODE = process.env.GEKTO_DEV === '1'
   WIDGET_PORT = parseInt(process.env.WIDGET_PORT ?? '5174', 10)
 
-  // Initialize store
-  initStore()
+  // Initialize server-authoritative state module
+  initState()
 
   // Widget paths - check multiple locations
   const possibleWidgetPaths = [
@@ -290,91 +290,6 @@ async function main() {
   // === STEP 3: Create and start server ===
   const server = http.createServer((req, res) => {
     const url = req.url || '/'
-
-    // API: Get lizards
-    if (url === '/__gekto/api/lizards' && req.method === 'GET') {
-      const lizards = getData<Array<{ id: string; position: { x: number; y: number } }>>('lizards') || []
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(lizards))
-      return
-    }
-
-    // API: Save lizards
-    if (url === '/__gekto/api/lizards' && req.method === 'POST') {
-      let body = ''
-      req.on('data', (chunk: Buffer) => { body += chunk })
-      req.on('end', () => {
-        try {
-          const lizards = JSON.parse(body)
-          setData('lizards', lizards)
-          res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ success: true }))
-        } catch (err) {
-          res.writeHead(400, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Invalid JSON' }))
-        }
-      })
-      return
-    }
-
-    // API: Get global store (Zustand persistence)
-    if (url === '/__gekto/api/store' && req.method === 'GET') {
-      const store = getData<Record<string, unknown>>('store') || {}
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ state: store, version: 0 }))
-      return
-    }
-
-    // API: Save global store (Zustand persistence)
-    if (url === '/__gekto/api/store' && req.method === 'POST') {
-      let body = ''
-      req.on('data', (chunk: Buffer) => { body += chunk })
-      req.on('end', () => {
-        try {
-          const store = JSON.parse(body)
-          setData('store', store)
-          res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ success: true }))
-        } catch (err) {
-          res.writeHead(400, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Invalid JSON' }))
-        }
-      })
-      return
-    }
-
-    // API: Get chat history
-    const chatGetMatch = url.match(/^\/__gekto\/api\/chats\/([^/]+)$/)
-    if (chatGetMatch && req.method === 'GET') {
-      const lizardId = chatGetMatch[1]
-      const allChats = getData<Record<string, Array<unknown>>>('chats') || {}
-      const messages = allChats[lizardId] || []
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(messages))
-      return
-    }
-
-    // API: Save chat history
-    const chatPostMatch = url.match(/^\/__gekto\/api\/chats\/([^/]+)$/)
-    if (chatPostMatch && req.method === 'POST') {
-      const lizardId = chatPostMatch[1]
-      let body = ''
-      req.on('data', (chunk: Buffer) => { body += chunk })
-      req.on('end', () => {
-        try {
-          const messages = JSON.parse(body)
-          const allChats = getData<Record<string, unknown>>('chats') || {}
-          allChats[lizardId] = messages
-          setData('chats', allChats)
-          res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ success: true }))
-        } catch (err) {
-          res.writeHead(400, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Invalid JSON' }))
-        }
-      })
-      return
-    }
 
     // Iframe proxy: strip X-Frame-Options and CSP so any site can load in an iframe
     if (url.startsWith('/__gekto/iframe-proxy/')) {

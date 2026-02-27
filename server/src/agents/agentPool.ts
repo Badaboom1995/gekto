@@ -4,6 +4,7 @@ import { dirname } from 'path'
 import { WebSocket } from 'ws'
 import type { AgentProvider, StreamCallbacks, AgentResponse, FileChange } from './types.js'
 import { HeadlessAgent } from './HeadlessAgent.js'
+import { getState, mutate } from '../state.js'
 
 interface QueuedMessage {
   message: string
@@ -159,6 +160,20 @@ export async function sendMessage(
       })
     },
     onFileChange: (change: FileChange) => {
+      // Persist file change in server state
+      const agent = getState().agents[lizardId]
+      if (agent) {
+        const existing = agent.fileChanges ?? []
+        const existingIndex = existing.findIndex(fc => fc.filePath === change.filePath)
+        let updated: FileChange[]
+        if (existingIndex >= 0) {
+          updated = [...existing]
+          updated[existingIndex] = { ...updated[existingIndex], after: change.after, tool: change.tool }
+        } else {
+          updated = [...existing, change]
+        }
+        mutate(`agents.${lizardId}.fileChanges`, updated)
+      }
       safeSend(session, {
         type: 'file_change',
         lizardId,

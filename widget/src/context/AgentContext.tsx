@@ -1,54 +1,42 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
-import { useStore, type Message, type ToolMessage, type FileChange } from '../store/store'
+import { type Message, type ToolMessage, type FileChange } from '../store/store'
+import { setRawMessageHandler, getServerState } from '../hooks/useServerState'
 
-// Helper to save message - to store if agent has task, otherwise to REST API
-async function saveMessage(agentId: string, message: Message) {
-  const state = useStore.getState()
+// Helper to save message — sends to server state via WS
+function saveMessage(agentId: string, message: Message) {
+  const state = getServerState()
   const agent = state.agents[agentId]
 
-  if (agent?.taskId) {
-    // Agent has task - save to store (persists via Zustand middleware)
-    state.addMessageToTask(agent.taskId, message)
-  } else {
-    // No task - save to REST API
-    // First fetch existing messages, then append
-    try {
-      const res = await fetch(`/__gekto/api/chats/${agentId}`)
-      const existing = res.ok ? await res.json() : []
-      const updated = [
-        ...existing,
-        {
-          id: message.id,
-          text: message.text,
-          sender: message.sender,
-          timestamp: message.timestamp.toISOString(),
-          isTerminal: message.isTerminal,
-          toolUse: message.toolUse ? {
-            tool: message.toolUse.tool,
-            input: message.toolUse.input,
-            fullInput: message.toolUse.fullInput,
-            status: message.toolUse.status,
-            startTime: message.toolUse.startTime.toISOString(),
-            endTime: message.toolUse.endTime?.toISOString(),
-          } : undefined,
-        },
-      ]
-      await fetch(`/__gekto/api/chats/${agentId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      })
-    } catch (err) {
-      console.error('[Agent] Failed to save message to REST API:', err)
-    }
+  // Save to server state (chats keyed by taskId if agent has task, otherwise by agentId)
+  const chatKey = agent?.taskId || agentId
+  const existing = state.chats[chatKey] || []
+  const serialized = {
+    ...message,
+    timestamp: typeof message.timestamp === 'string' ? message.timestamp : new Date().toISOString(),
+  }
+
+  const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'save_chat',
+      agentId: chatKey,
+      messages: [...existing, serialized],
+    }))
   }
 }
 
-// Helper to sync agent status to store
+// Helper to sync agent status to server state
 function syncAgentStatus(agentId: string, status: 'idle' | 'working' | 'done' | 'pending' | 'error') {
-  const state = useStore.getState()
+  const state = getServerState()
   if (state.agents[agentId]) {
-    state.updateAgent(agentId, { status })
+    const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'save_state',
+        path: `agents.${agentId}.status`,
+        value: status,
+      }))
+    }
   }
 }
 
@@ -59,7 +47,6 @@ interface ToolStatus {
   fullInput?: Record<string, unknown>
 }
 
-// FileChange type re-exported from store (persisted on Agent)
 export type { FileChange } from '../store/store'
 
 interface PermissionRequest {
@@ -83,9 +70,9 @@ interface LizardSession {
   currentTool: ToolStatus | null
   permissionRequest: PermissionRequest | null
   queuePosition: number
-  lastResponse?: string  // Store last response for task completion
-  lastStatus?: 'done' | 'pending'  // Status extracted from [STATUS:DONE/PENDING] marker
-  streamingText?: string  // Accumulates text chunks as agent explains what it's doing
+  lastResponse?: string
+  lastStatus?: 'done' | 'pending'
+  streamingText?: string
 }
 
 interface AgentContextValue {
@@ -145,7 +132,7 @@ const DEFAULT_SESSION: LizardSession = {
 }
 
 export function AgentProvider({ children }: AgentProviderProps) {
-  // Per-lizard sessions (transient state only: currentTool, permissionRequest, queuePosition)
+  // Per-lizard sessions (transient state only)
   const [sessions, setSessions] = useState<Map<string, LizardSession>>(() => new Map())
   const [workingDir, setWorkingDir] = useState('')
   const [activeAgents, setActiveAgents] = useState<ActiveAgent[]>([])
@@ -153,18 +140,16 @@ export function AgentProvider({ children }: AgentProviderProps) {
   const wsRef = useRef<WebSocket | null>(null)
   const sessionsRef = useRef<Map<string, LizardSession>>(sessions)
 
-  // Keep sessionsRef in sync with sessions state
   useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
 
-  // Message listeners - ChatWindow can register to receive messages
+  // Message listeners
   const messageListenersRef = useRef<Map<string, (message: Message) => void>>(new Map())
 
-  // Name extractor callback - set by SwarmContext to handle name extraction
+  // Name extractor callback
   const nameExtractorRef = useRef<((lizardId: string, name: string) => void) | null>(null)
 
-  // Helper to update a specific lizard's session
   const updateSession = useCallback((lizardId: string, updates: Partial<LizardSession>) => {
     setSessions(prev => {
       const next = new Map(prev)
@@ -174,377 +159,347 @@ export function AgentProvider({ children }: AgentProviderProps) {
     })
   }, [])
 
-  // Connect to agent WebSocket once
+  // Register raw message handler with useServerState
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/__gekto/agent`)
-    wsRef.current = ws
+    // Get WS ref from global (set by useServerState)
+    const checkWs = setInterval(() => {
+      const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+      if (ws && ws !== wsRef.current) {
+        wsRef.current = ws
+      }
+    }, 100)
 
-    ws.onopen = () => {
-      // Expose WebSocket globally for GektoContext
-      (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket = ws
-      // Fetch active agents list on connect
-      ws.send(JSON.stringify({ type: 'list_agents' }))
-    }
+    // Handle all non-state messages (tool, text, response, etc.)
+    setRawMessageHandler((msg: Record<string, unknown>) => {
+      const lizardId = msg.lizardId as string | undefined
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data)
-        const lizardId = msg.lizardId
+      switch (msg.type) {
+        case 'state':
+          if (lizardId) {
+            if (msg.state === 'working') {
+              updateSession(lizardId, { state: 'working', queuePosition: 0, streamingText: '' })
+              syncAgentStatus(lizardId, 'working')
+            } else if (msg.state === 'ready') {
+              updateSession(lizardId, { state: 'ready', currentTool: null, queuePosition: 0 })
+              const session = sessionsRef.current.get(lizardId)
+              const finalStatus = session?.lastStatus || 'pending'
+              syncAgentStatus(lizardId, finalStatus)
 
-
-        switch (msg.type) {
-          case 'state':
-            if (lizardId) {
-              if (msg.state === 'working') {
-                // Clear streaming text when starting new work
-                updateSession(lizardId, { state: 'working', queuePosition: 0, streamingText: '' })
-                // Sync to store
-                syncAgentStatus(lizardId, 'working')
-              } else if (msg.state === 'ready') {
-                updateSession(lizardId, { state: 'ready', currentTool: null, queuePosition: 0 })
-                // Sync to store - use lastStatus if available, otherwise default to 'pending'
+              // Worker completion
+              if (lizardId.startsWith('worker_')) {
                 const session = sessionsRef.current.get(lizardId)
-                const finalStatus = session?.lastStatus || 'pending'
-                syncAgentStatus(lizardId, finalStatus)
-
-                // If this is a worker lizard transitioning to ready, notify GektoContext
-                // that the task is complete (agent finished all processing)
-                if (lizardId.startsWith('worker_')) {
-                  const session = sessionsRef.current.get(lizardId)
-                  const lastResponse = session?.lastResponse || ''
-                  const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
-                  if (gektoHandler && lastResponse) {
-                    gektoHandler(lizardId, lastResponse, false)
-                  } else {
-                    console.warn('[Agent] Cannot notify: gektoHandler=', !!gektoHandler, 'lastResponse=', !!lastResponse)
-                  }
-                }
-              } else if (msg.state === 'error') {
-                updateSession(lizardId, { state: 'error' })
-                syncAgentStatus(lizardId, 'error')
-              }
-            }
-            break
-
-          case 'gekto_state':
-            setGektoState(msg.state as GektoState)
-            break
-
-          case 'queued':
-            if (lizardId) {
-              updateSession(lizardId, { state: 'queued', queuePosition: msg.position })
-            }
-            break
-
-          case 'tool':
-            if (lizardId) {
-              const toolStatus: ToolStatus = {
-                tool: msg.tool,
-                status: msg.status,
-                input: msg.input,
-                fullInput: msg.fullInput,
-              }
-              updateSession(lizardId, { currentTool: toolStatus })
-
-              // Save tool use to chat history
-              if (msg.status === 'running') {
-                const toolMessage: Message = {
-                  id: `tool_${Date.now()}`,
-                  text: msg.tool,
-                  sender: 'bot',
-                  timestamp: new Date(),
-                  toolUse: {
-                    tool: msg.tool,
-                    input: msg.input,
-                    fullInput: msg.fullInput,
-                    status: 'running',
-                    startTime: new Date(),
-                  },
-                }
-                // Save to store (persists to task.chatHistory)
-                saveMessage(lizardId, toolMessage)
-                // Also notify listener if chat is open (for immediate UI update)
-                const listener = messageListenersRef.current.get(lizardId)
-                if (listener) {
-                  listener(toolMessage)
+                const lastResponse = session?.lastResponse || ''
+                const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
+                if (gektoHandler && lastResponse) {
+                  gektoHandler(lizardId, lastResponse, false)
                 }
               }
+            } else if (msg.state === 'error') {
+              updateSession(lizardId, { state: 'error' })
+              syncAgentStatus(lizardId, 'error')
             }
-            break
-
-          case 'text':
-            // Streaming text - show latest message (not accumulated)
-            if (lizardId) {
-              // Strip system markers like [AGENT_NAME:...], [STATUS:...], and [TASK_CONTEXT]
-              let cleanText = msg.text
-                .replace(/\[AGENT_NAME:[^\]]+\]\s*/g, '')
-                .replace(/\[STATUS:(DONE|PENDING)\]/gi, '')
-                .replace(/\[TASK_CONTEXT\][\s\S]*?\[\/TASK_CONTEXT\]\s*/g, '')
-                .trim()
-
-              if (cleanText) {
-                const currentSession = sessionsRef.current.get(lizardId)
-                updateSession(lizardId, { streamingText: cleanText })
-                sessionsRef.current.set(lizardId, {
-                  ...(currentSession ?? DEFAULT_SESSION),
-                  streamingText: cleanText
-                })
-
-                // Notify ChatWindow listener with streaming message so text is visible in chat
-                const listener = messageListenersRef.current.get(lizardId)
-                if (listener) {
-                  listener({
-                    id: `streaming_${lizardId}`,
-                    text: cleanText,
-                    sender: 'bot',
-                    timestamp: new Date(),
-                    isStreaming: true,
-                  } as Message & { isStreaming: boolean })
-                }
-              }
-            }
-            break
-
-          case 'file_change':
-            // File changed by Write/Edit tool — persist in store
-            if (lizardId && msg.change) {
-              useStore.getState().addFileChange(lizardId, msg.change as FileChange)
-            }
-            break
-
-          case 'files_reverted':
-            // Remove reverted files from the store
-            if (lizardId && msg.reverted) {
-              useStore.getState().removeFileChanges(lizardId, msg.reverted as string[])
-            }
-            break
-
-          case 'permission':
-            if (lizardId) {
-              updateSession(lizardId, {
-                permissionRequest: {
-                  tool: msg.tool,
-                  input: msg.input,
-                  description: msg.description,
-                }
-              })
-            }
-            break
-
-          case 'info':
-            if (msg.workingDir) {
-              setWorkingDir(msg.workingDir)
-            }
-            break
-
-          case 'agents_list':
-            setActiveAgents(msg.agents || [])
-            // Sync session states from server
-            if (msg.agents && msg.agents.length > 0) {
-              setSessions(prev => {
-                const next = new Map(prev)
-                for (const agent of msg.agents) {
-                  const current = next.get(agent.lizardId) ?? { ...DEFAULT_SESSION }
-                  next.set(agent.lizardId, {
-                    ...current,
-                    state: agent.state || 'ready',
-                    queuePosition: agent.queuePosition || 0,
-                  })
-                }
-                return next
-              })
-            }
-
-            // Detect orphaned agents — in store as 'working' but not on server
-            {
-              const serverIds = new Set((msg.agents || []).map((a: ActiveAgent) => a.lizardId))
-              const storeState = useStore.getState()
-              for (const [agentId, agent] of Object.entries(storeState.agents)) {
-                if (agent.status === 'working' && !serverIds.has(agentId)) {
-                  const task = agent.taskId ? storeState.tasks[agent.taskId] : undefined
-                  if (task?.prompt && ws.readyState === WebSocket.OPEN) {
-                    console.log(`[Agent] Resuming orphaned agent ${agentId} with sessionId=${task.sessionId || 'none'}`)
-                    ws.send(JSON.stringify({
-                      type: 'resume_agent',
-                      lizardId: agentId,
-                      sessionId: task.sessionId,
-                      prompt: task.prompt,
-                    }))
-                  }
-                }
-              }
-            }
-            break
-
-          case 'kill_result':
-          case 'kill_all_result':
-            // Refresh the list after killing
-            ws.send(JSON.stringify({ type: 'list_agents' }))
-            break
-
-          case 'debug_pool_result':
-            break
-
-          // Plan-related messages - forward to GektoContext
-          case 'plan_created':
-          case 'plan_updated':
-          case 'plan_failed':
-          case 'gekto_chat':
-          case 'gekto_classified':
-          case 'gekto_text':
-          case 'gekto_remove':
-          case 'prompt_generated':
-          case 'prompts_ready':
-          case 'task_started':
-          case 'task_completed':
-          case 'task_failed': {
-            const gektoHandler = (window as unknown as { __gektoMessageHandler?: (msg: unknown) => void }).__gektoMessageHandler
-            if (gektoHandler) {
-              //  const taskId = `test_${Date.now()}`
-              //  const planId = `plan_${taskId}`
-              //  msg.planId = planId
-
-              //  const plan = {
-              //   id: planId,
-              //   status: 'ready',
-              //   originalPrompt: 'Test: spawn 3 agents with lightweight tasks',
-              //   tasks: [
-              //     {
-              //       id: `${taskId}_1`,
-              //       description: 'Agent 1: Say hello',
-              //       prompt: 'Say "Hello from Agent 1!" and nothing else.',
-              //       files: [],
-              //       status: 'pending',
-              //       dependencies: [],
-              //     },
-              //     {
-              //       id: `${taskId}_2`,
-              //       description: 'Agent 2: Count to 3',
-              //       prompt: 'Count from 1 to 3, one number per line.',
-              //       files: [],
-              //       status: 'pending',
-              //       dependencies: [],
-              //     },
-              //     {
-              //       id: `${taskId}_3`,
-              //       description: 'Agent 3: Say goodbye',
-              //       prompt: 'Say "Goodbye from Agent 3!" and nothing else.',
-              //       files: [],
-              //       status: 'pending',
-              //       dependencies: [],
-              //     },
-              //   ],
-              //   createdAt: new Date().toISOString(),
-              // }
-              // msg.plan = plan
-
-              
-              gektoHandler(msg)
-            }
-            break
           }
+          break
 
-          case 'response':
-          case 'error': {
-            let text = msg.type === 'error' ? `Error: ${msg.message}` : msg.text
-            let extractedStatus: 'done' | 'pending' | undefined
+        case 'gekto_state':
+          setGektoState(msg.state as GektoState)
+          break
 
-            // Extract agent name if present
-            if (lizardId && msg.type === 'response') {
-              const nameMatch = text.match(/^\[AGENT_NAME:([^\]]+)\]\s*/)
-              if (nameMatch) {
-                const extractedName = nameMatch[1].trim()
-                text = text.replace(nameMatch[0], '')
-                // Call name extractor if registered
-                if (nameExtractorRef.current) {
-                  nameExtractorRef.current(lizardId, extractedName)
-                }
-              }
+        case 'queued':
+          if (lizardId) {
+            updateSession(lizardId, { state: 'queued', queuePosition: msg.position as number })
+          }
+          break
 
-              // Extract status marker [STATUS:DONE] or [STATUS:PENDING]
-              const statusMatch = text.match(/\[STATUS:(DONE|PENDING)\]/i)
-              if (statusMatch) {
-                extractedStatus = statusMatch[1].toLowerCase() as 'done' | 'pending'
-                text = text.replace(statusMatch[0], '').trim()
-              }
+        case 'tool':
+          if (lizardId) {
+            const toolStatus: ToolStatus = {
+              tool: msg.tool as string,
+              status: msg.status as 'running' | 'completed',
+              input: msg.input as string | undefined,
+              fullInput: msg.fullInput as Record<string, unknown> | undefined,
             }
+            updateSession(lizardId, { currentTool: toolStatus })
 
-            const newMessage: Message = {
-              id: Date.now().toString(),
-              text,
-              sender: 'bot',
-              timestamp: new Date(),
-            }
-
-            // Save sessionId to task for recovery after server restart
-            if (lizardId && msg.sessionId) {
-              const storeState = useStore.getState()
-              const agent = storeState.agents[lizardId]
-              if (agent?.taskId) {
-                storeState.updateTask(agent.taskId, { sessionId: msg.sessionId })
+            if (msg.status === 'running') {
+              const toolMessage: Message = {
+                id: `tool_${Date.now()}`,
+                text: msg.tool as string,
+                sender: 'bot',
+                timestamp: new Date().toISOString(),
+                toolUse: {
+                  tool: msg.tool as string,
+                  input: msg.input as string | undefined,
+                  fullInput: msg.fullInput as Record<string, unknown> | undefined,
+                  status: 'running',
+                  startTime: new Date().toISOString(),
+                },
               }
-            }
-
-            // Save to store and notify listener
-            if (lizardId) {
-              // Save to store (persists to task.chatHistory)
-              saveMessage(lizardId, newMessage)
-              // Also notify listener if chat is open (for immediate UI update)
+              saveMessage(lizardId, toolMessage)
               const listener = messageListenersRef.current.get(lizardId)
               if (listener) {
-                listener(newMessage)
+                listener(toolMessage)
               }
+            }
+          }
+          break
 
-              // Store last response and status (used when state becomes 'ready')
-              // Default to 'pending' - agent is waiting for user input
-              // Only 'done' if agent explicitly marks [STATUS:DONE]
-              const statusToStore = extractedStatus || 'pending'
-              // Also store as streamingText so it shows in the task abstract
-              updateSession(lizardId, { lastResponse: text, lastStatus: statusToStore, streamingText: text })
-              // Also update ref immediately so it's available when 'state: ready' arrives
-              // (the useEffect that syncs sessionsRef runs after render, which is too late)
-              const currentSession = sessionsRef.current.get(lizardId) ?? { ...DEFAULT_SESSION }
-              sessionsRef.current.set(lizardId, { ...currentSession, lastResponse: text, lastStatus: statusToStore, streamingText: text })
+        case 'text':
+          if (lizardId) {
+            let cleanText = (msg.text as string)
+              .replace(/\[AGENT_NAME:[^\]]+\]\s*/g, '')
+              .replace(/\[STATUS:(DONE|PENDING)\]/gi, '')
+              .replace(/\[TASK_CONTEXT\][\s\S]*?\[\/TASK_CONTEXT\]\s*/g, '')
+              .trim()
 
-              // For worker lizards: if it's an error, mark task as failed immediately
-              if (lizardId.startsWith('worker_') && msg.type === 'error') {
-                const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
-                if (gektoHandler) {
-                  gektoHandler(lizardId, text, true)
+            if (cleanText) {
+              const currentSession = sessionsRef.current.get(lizardId)
+              updateSession(lizardId, { streamingText: cleanText })
+              sessionsRef.current.set(lizardId, {
+                ...(currentSession ?? DEFAULT_SESSION),
+                streamingText: cleanText
+              })
+
+              const listener = messageListenersRef.current.get(lizardId)
+              if (listener) {
+                listener({
+                  id: `streaming_${lizardId}`,
+                  text: cleanText,
+                  sender: 'bot',
+                  timestamp: new Date().toISOString(),
+                  isStreaming: true,
+                } as Message & { isStreaming: boolean })
+              }
+            }
+          }
+          break
+
+        case 'file_change':
+          // File changes are now tracked by server state via agentPool.ts
+          // But also notify the store for backward compat
+          if (lizardId && msg.change) {
+            const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              const state = getServerState()
+              const agent = state.agents[lizardId]
+              if (agent) {
+                const change = msg.change as FileChange
+                const existing = agent.fileChanges ?? []
+                const idx = existing.findIndex(fc => fc.filePath === change.filePath)
+                let updated: FileChange[]
+                if (idx >= 0) {
+                  updated = [...existing]
+                  updated[idx] = { ...updated[idx], after: change.after, tool: change.tool }
+                } else {
+                  updated = [...existing, change]
+                }
+                ws.send(JSON.stringify({
+                  type: 'save_state',
+                  path: `agents.${lizardId}.fileChanges`,
+                  value: updated,
+                }))
+              }
+            }
+          }
+          break
+
+        case 'files_reverted':
+          if (lizardId && msg.reverted) {
+            const state = getServerState()
+            const agent = state.agents[lizardId]
+            if (agent?.fileChanges) {
+              const revertedSet = new Set(msg.reverted as string[])
+              const remaining = agent.fileChanges.filter(fc => !revertedSet.has(fc.filePath))
+              const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'save_state',
+                  path: `agents.${lizardId}.fileChanges`,
+                  value: remaining,
+                }))
+              }
+            }
+          }
+          break
+
+        case 'permission':
+          if (lizardId) {
+            updateSession(lizardId, {
+              permissionRequest: {
+                tool: msg.tool as string,
+                input: msg.input as string,
+                description: msg.description as string,
+              }
+            })
+          }
+          break
+
+        case 'info':
+          if (msg.workingDir) {
+            setWorkingDir(msg.workingDir as string)
+          }
+          break
+
+        case 'agents_list':
+          setActiveAgents((msg.agents || []) as ActiveAgent[])
+          if (msg.agents && (msg.agents as ActiveAgent[]).length > 0) {
+            setSessions(prev => {
+              const next = new Map(prev)
+              for (const agent of msg.agents as ActiveAgent[] & { state?: string; queuePosition?: number; lizardId: string }[]) {
+                const current = next.get(agent.lizardId) ?? { ...DEFAULT_SESSION }
+                next.set(agent.lizardId, {
+                  ...current,
+                  state: (agent as unknown as { state?: string }).state as AgentState || 'ready',
+                  queuePosition: (agent as unknown as { queuePosition?: number }).queuePosition || 0,
+                })
+              }
+              return next
+            })
+          }
+
+          // Detect orphaned agents
+          {
+            const serverIds = new Set(((msg.agents || []) as ActiveAgent[]).map(a => a.lizardId))
+            const state = getServerState()
+            for (const [agentId, agent] of Object.entries(state.agents)) {
+              if (agent.status === 'working' && !serverIds.has(agentId)) {
+                const task = agent.taskId ? state.tasks[agent.taskId] : undefined
+                const ws = wsRef.current
+                if (task?.prompt && ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({
+                    type: 'resume_agent',
+                    lizardId: agentId,
+                    sessionId: task.sessionId,
+                    prompt: task.prompt,
+                  }))
                 }
               }
             }
-
-            // Refresh agents list after response
-            ws.send(JSON.stringify({ type: 'list_agents' }))
-            break
           }
+          break
+
+        case 'kill_result':
+        case 'kill_all_result': {
+          const ws = wsRef.current
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'list_agents' }))
+          }
+          break
         }
-      } catch (err) {
-        console.error('[Agent] Failed to parse message:', err)
+
+        case 'debug_pool_result':
+          break
+
+        // Plan-related messages - forward to GektoContext
+        case 'plan_created':
+        case 'plan_updated':
+        case 'plan_failed':
+        case 'gekto_chat':
+        case 'gekto_classified':
+        case 'gekto_text':
+        case 'gekto_remove':
+        case 'prompt_generated':
+        case 'prompts_ready':
+        case 'task_started':
+        case 'task_completed':
+        case 'task_failed':
+        case 'planning_started': {
+          const gektoHandler = (window as unknown as { __gektoMessageHandler?: (msg: unknown) => void }).__gektoMessageHandler
+          if (gektoHandler) {
+            gektoHandler(msg)
+          }
+          break
+        }
+
+        case 'response':
+        case 'error': {
+          let text = msg.type === 'error' ? `Error: ${msg.message}` : msg.text as string
+          let extractedStatus: 'done' | 'pending' | undefined
+
+          if (lizardId && msg.type === 'response') {
+            const nameMatch = text.match(/^\[AGENT_NAME:([^\]]+)\]\s*/)
+            if (nameMatch) {
+              const extractedName = nameMatch[1].trim()
+              text = text.replace(nameMatch[0], '')
+              if (nameExtractorRef.current) {
+                nameExtractorRef.current(lizardId, extractedName)
+              }
+            }
+
+            const statusMatch = text.match(/\[STATUS:(DONE|PENDING)\]/i)
+            if (statusMatch) {
+              extractedStatus = statusMatch[1].toLowerCase() as 'done' | 'pending'
+              text = text.replace(statusMatch[0], '').trim()
+            }
+          }
+
+          const newMessage: Message = {
+            id: Date.now().toString(),
+            text,
+            sender: 'bot',
+            timestamp: new Date().toISOString(),
+          }
+
+          // Save sessionId to task for recovery
+          if (lizardId && msg.sessionId) {
+            const state = getServerState()
+            const agent = state.agents[lizardId]
+            if (agent?.taskId) {
+              const ws = wsRef.current
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'save_state',
+                  path: `tasks.${agent.taskId}.sessionId`,
+                  value: msg.sessionId,
+                }))
+              }
+            }
+          }
+
+          if (lizardId) {
+            saveMessage(lizardId, newMessage)
+            const listener = messageListenersRef.current.get(lizardId)
+            if (listener) {
+              listener(newMessage)
+            }
+
+            const statusToStore = extractedStatus || 'pending'
+            updateSession(lizardId, { lastResponse: text, lastStatus: statusToStore, streamingText: text })
+            const currentSession = sessionsRef.current.get(lizardId) ?? { ...DEFAULT_SESSION }
+            sessionsRef.current.set(lizardId, { ...currentSession, lastResponse: text, lastStatus: statusToStore, streamingText: text })
+
+            // Worker error → mark task failed
+            if (lizardId.startsWith('worker_') && msg.type === 'error') {
+              const gektoHandler = (window as unknown as { __gektoTaskComplete?: (lizardId: string, result: string, isError: boolean) => void }).__gektoTaskComplete
+              if (gektoHandler) {
+                gektoHandler(lizardId, text, true)
+              }
+            }
+          }
+
+          // Refresh agents list
+          const ws = wsRef.current
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'list_agents' }))
+          }
+          break
+        }
       }
-    }
-
-    ws.onclose = () => {
-    }
-
-    ws.onerror = (error) => {
-      console.error('[Agent] WebSocket error:', error)
-    }
+    })
 
     return () => {
-      ws.close()
+      clearInterval(checkWs)
+      setRawMessageHandler(null)
     }
   }, [updateSession])
 
   const sendMessage = useCallback((lizardId: string, message: string) => {
-    if (wsRef.current?.readyState !== WebSocket.OPEN) return
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
 
-    // Optimistically set to working (server will confirm or queue)
     updateSession(lizardId, { state: 'working' })
 
-    wsRef.current.send(JSON.stringify({
+    ws.send(JSON.stringify({
       type: 'chat',
       lizardId,
       content: message,
@@ -552,9 +507,10 @@ export function AgentProvider({ children }: AgentProviderProps) {
   }, [updateSession])
 
   const respondToPermission = useCallback((lizardId: string, approved: boolean) => {
-    if (wsRef.current?.readyState !== WebSocket.OPEN) return
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
 
-    wsRef.current.send(JSON.stringify({
+    ws.send(JSON.stringify({
       type: 'permission_response',
       lizardId,
       approved,
@@ -564,12 +520,10 @@ export function AgentProvider({ children }: AgentProviderProps) {
   }, [updateSession])
 
   const getLizardState = useCallback((lizardId: string): AgentState => {
-    // Check local session state first
     const sessionState = sessions.get(lizardId)?.state
     if (sessionState && sessionState !== 'ready') {
       return sessionState
     }
-    // Fall back to server-reported state (for orphan agents or reconnects)
     const serverAgent = activeAgents.find(a => a.lizardId === lizardId)
     if (serverAgent?.isRunning || serverAgent?.isProcessing) {
       return 'working'
@@ -590,15 +544,15 @@ export function AgentProvider({ children }: AgentProviderProps) {
   }, [sessions])
 
   const getFileChanges = useCallback((lizardId: string): FileChange[] => {
-    return useStore.getState().agents[lizardId]?.fileChanges ?? []
+    return getServerState().agents[lizardId]?.fileChanges ?? []
   }, [])
 
   const revertFiles = useCallback((lizardId: string, filePaths: string[]) => {
-    if (wsRef.current?.readyState !== WebSocket.OPEN) return
-    const agentFileChanges = useStore.getState().agents[lizardId]?.fileChanges ?? []
-    // Send the relevant FileChange objects so server has the `before` content
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    const agentFileChanges = getServerState().agents[lizardId]?.fileChanges ?? []
     const relevantChanges = agentFileChanges.filter(fc => filePaths.includes(fc.filePath))
-    wsRef.current.send(JSON.stringify({
+    ws.send(JSON.stringify({
       type: 'revert_files',
       lizardId,
       filePaths,
@@ -607,14 +561,23 @@ export function AgentProvider({ children }: AgentProviderProps) {
   }, [])
 
   const acceptAgent = useCallback((lizardId: string) => {
-    const state = useStore.getState()
+    const state = getServerState()
     const agent = state.agents[lizardId]
     if (agent?.taskId) {
-      // Mark task as completed (preserves it for history/statistics)
-      state.updateTask(agent.taskId, { status: 'completed' })
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'save_state',
+          path: `tasks.${agent.taskId}.status`,
+          value: 'completed',
+        }))
+      }
     }
-    // Remove agent from store (removes from canvas via useAgentShapeSync)
-    state.deleteAgent(lizardId)
+    // Remove agent
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'delete_agent', agentId: lizardId }))
+    }
     // Clean up transient session
     setSessions(prev => {
       const next = new Map(prev)
@@ -628,26 +591,30 @@ export function AgentProvider({ children }: AgentProviderProps) {
   }, [workingDir])
 
   const refreshAgentList = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'list_agents' }))
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'list_agents' }))
     }
   }, [])
 
   const killAgent = useCallback((lizardId: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'kill', lizardId }))
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'kill', lizardId }))
     }
   }, [])
 
   const resetAgent = useCallback((lizardId: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'reset', lizardId }))
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'reset', lizardId }))
     }
   }, [])
 
   const killAllAgents = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'kill_all' }))
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'kill_all' }))
     }
   }, [])
 
@@ -659,7 +626,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
     return wsRef.current
   }, [])
 
-  // Expose method to register/unregister message listeners
+  // Expose message listeners globally
   useEffect(() => {
     (window as unknown as { __agentMessageListeners: Map<string, (message: Message) => void> }).__agentMessageListeners = messageListenersRef.current
   }, [])

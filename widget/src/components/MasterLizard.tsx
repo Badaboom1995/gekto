@@ -22,11 +22,11 @@ export function MasterLizard() {
     closeChat,
     saveVisuals,
     addAgent,
+    isWhiteboardOpen,
+    setWhiteboardOpen,
   } = useSwarm()
 
   const storeClearAllAgents = useStore((s) => s.clearAllAgents)
-  const isWhiteboardOpen = useStore((s) => s.isWhiteboardOpen)
-  const setWhiteboardOpen = useStore((s) => s.setWhiteboardOpen)
 
   const { sessions } = useAgent()
   // Subscribe to sessions to trigger re-render on state changes

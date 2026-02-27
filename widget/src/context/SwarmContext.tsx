@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import { useStore, type Agent } from '../store/store'
+import { useServerState } from '../hooks/useServerState'
 
 type ChatMode = 'task' | 'plan'
 type Arrangement = 'grid' | 'stack' | 'row' | 'column'
@@ -33,6 +34,10 @@ interface SwarmContextValue {
   // Chat state
   activeChatId: string | null
   chatMode: ChatMode
+
+  // Whiteboard
+  isWhiteboardOpen: boolean
+  setWhiteboardOpen: (open: boolean) => void
 
   // Actions
   addAgent: (position?: Position) => void
@@ -145,43 +150,35 @@ export function SwarmProvider({
   const storeCreateAgent = useStore((s) => s.createAgent)
   const storeDeleteAgent = useStore((s) => s.deleteAgent)
 
-  // Local visual state (position + color per agent)
+  // Server state for persisted visuals
+  const { state: serverState, send } = useServerState()
+
+  // Local visual state — initialized from server state visuals
   const [visuals, setVisuals] = useState<Record<string, LizardVisual>>(initialVisuals)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [chatMode, setChatMode] = useState<ChatMode>('task')
   const lizardInstancesRef = useRef<Map<string, LizardInstance>>(new Map())
+  const [isWhiteboardOpen, setWhiteboardOpen] = useState(false)
   const [selectionRect, setSelectionRect] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const [isShiftPressed, setIsShiftPressed] = useState(false)
+  const initializedFromServerRef = useRef(false)
 
-  // Ref for visuals to avoid stale closures
+  // Ref for visuals
   const visualsRef = useRef(visuals)
   useEffect(() => {
     visualsRef.current = visuals
   }, [visuals])
 
-  // Load saved visuals from server on mount
+  // Load visuals from server state on first snapshot
   useEffect(() => {
-    fetch('/__gekto/api/lizards')
-      .then(res => res.json())
-      .then((saved: Array<{ id: string; position: { x: number; y: number }; settings?: { color?: string } }>) => {
-        if (saved && saved.length > 0) {
-          const loaded: Record<string, LizardVisual> = {}
-          saved.forEach(l => {
-            loaded[l.id] = {
-              position: l.position,
-              color: l.settings?.color || '#BFFF6B',
-            }
-          })
-          setVisuals(loaded)
-        }
-      })
-      .catch(() => {
-        // Ignore errors - will use auto-generated visuals
-      })
-  }, [])
+    if (!initializedFromServerRef.current && serverState.visuals && Object.keys(serverState.visuals).length > 0) {
+      setVisuals(serverState.visuals)
+      initializedFromServerRef.current = true
+    }
+  }, [serverState.visuals])
 
-  // Auto-create visuals for new agents (from store that don't have visuals yet)
+  // Auto-create visuals for new agents
   const agentIds = Object.keys(agents)
   const newAgentIds = agentIds.filter(id => !visuals[id])
 
@@ -193,7 +190,6 @@ export function SwarmProvider({
       const color = randomDistinctColor([...existingColors])
       existingColors.push(color)
 
-      // Calculate column position based on agent's index in the full list
       const agentIndex = agentIds.indexOf(id)
       const padding = 30
       const originX = window.innerWidth - LIZARD_SIZE - padding
@@ -211,7 +207,6 @@ export function SwarmProvider({
       }
     })
 
-    // Update state synchronously during render (not in effect)
     setVisuals(next)
   }
 
@@ -335,18 +330,17 @@ export function SwarmProvider({
     return () => window.removeEventListener('click', handleClick)
   }, [])
 
-  // Add new agent (creates in global store, visual auto-created by effect)
+  // Add new agent
   const addAgent = useCallback((position?: Position) => {
     const id = `agent_${Date.now()}`
     const agent: Agent = {
       id,
-      taskId: '',  // No task yet
+      taskId: '',
       personaId: 'plain',
       status: 'idle',
     }
     storeCreateAgent(agent)
 
-    // If position provided, override the auto-calculated one
     if (position) {
       const existingColors = Object.values(visualsRef.current).map(v => v.color)
       const color = randomDistinctColor(existingColors)
@@ -413,19 +407,17 @@ export function SwarmProvider({
     lizardInstancesRef.current.delete(id)
   }, [])
 
+  // Save visuals to server state via WS
   const saveVisuals = useCallback(() => {
-    const data = Object.entries(visualsRef.current).map(([id, visual]) => {
+    const data: Record<string, LizardVisual> = {}
+    for (const [id, visual] of Object.entries(visualsRef.current)) {
       const instance = lizardInstancesRef.current.get(id)
       const position = instance ? instance.getPosition() : visual.position
-      return { id, position, settings: { color: visual.color } }
-    })
+      data[id] = { position, color: visual.color }
+    }
 
-    fetch('/__gekto/api/lizards', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    }).catch(err => console.error('[Swarm] Failed to save visuals:', err))
-  }, [])
+    send({ type: 'save_visuals', visuals: data })
+  }, [send])
 
   const arrange = useCallback(() => {
     const instances = Array.from(lizardInstancesRef.current.values())
@@ -500,6 +492,8 @@ export function SwarmProvider({
     selectedIds,
     activeChatId,
     chatMode,
+    isWhiteboardOpen,
+    setWhiteboardOpen,
     addAgent,
     deleteAgent,
     updateColor,
@@ -512,7 +506,7 @@ export function SwarmProvider({
     unregisterLizard,
     arrange,
     saveVisuals,
-  }), [visuals, selectedIds, activeChatId, chatMode, addAgent, deleteAgent, updateColor, getVisual, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveVisuals])
+  }), [visuals, selectedIds, activeChatId, chatMode, isWhiteboardOpen, addAgent, deleteAgent, updateColor, getVisual, openChat, closeChat, toggleSelection, clearSelection, registerLizard, unregisterLizard, arrange, saveVisuals])
 
   return (
     <SwarmContext.Provider value={value}>

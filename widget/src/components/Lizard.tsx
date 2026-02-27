@@ -26,13 +26,13 @@ export function Lizard({ agentId }: LizardProps) {
     unregisterLizard,
     saveVisuals,
     getVisual,
+    isWhiteboardOpen,
   } = useSwarm()
 
   // Get agent from global store
   const agent = useStore((s) => s.agents[agentId])
   const agents = useStore((s) => s.agents)
   const tasks = useStore((s) => s.tasks)
-  const isWhiteboardOpen = useStore((s) => s.isWhiteboardOpen)
 
   // Calculate agent index and name
   const agentIds = Object.keys(agents)

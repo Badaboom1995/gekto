@@ -1,18 +1,35 @@
-// Gekto Store - Zustand with server persistence
-import { create } from 'zustand'
-import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
+// Gekto Store — thin wrapper over server-authoritative state
+//
+// Provides the same useStore(selector) API as before, but reads from
+// server state (via useServerState's external store) and dispatches
+// actions as WebSocket messages. No Zustand, no localStorage.
 
-// ============ Types ============
+import { useSyncExternalStore } from 'react'
+import {
+  getServerState,
+  subscribeToServerState,
+  type GektoAppState,
+  type Message,
+  type Task,
+  type Agent,
+  type FileChange,
+  type Persona,
+  type Plan,
+  type AgentStatus,
+  type TaskStatus,
+  type PlanStatus,
+} from '../hooks/useServerState'
 
-export interface Message {
-  id: string
-  text: string
-  sender: 'user' | 'bot' | 'system'
-  timestamp: Date
-  isTerminal?: boolean
-  toolUse?: ToolMessage
-  systemType?: 'mode' | 'status' | 'info'
-  systemData?: Record<string, unknown>
+export type {
+  Message,
+  Task,
+  Agent,
+  FileChange,
+  Persona,
+  Plan,
+  AgentStatus,
+  TaskStatus,
+  PlanStatus,
 }
 
 export interface ToolMessage {
@@ -24,77 +41,20 @@ export interface ToolMessage {
   endTime?: Date
 }
 
-export interface Persona {
-  id: string
-  name: string
-  systemPrompt: string
-  avatar?: string
+// ============ Actions (send WS messages) ============
+
+function sendWs(msg: Record<string, unknown>): void {
+  const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg))
+  }
 }
 
-export interface Task {
-  id: string
-  name: string
-  description: string
-  prompt: string
-  chatHistory: Message[]
-  sessionId?: string
-  status: TaskStatus
-  planId?: string
-  // Execution fields
-  files?: string[]              // Files this task will modify
-  assignedAgentId?: string      // Agent assigned to this task
-  dependencies?: string[]       // Task IDs that must complete first
-  result?: string               // Completion result
-  error?: string                // Error message if failed
-}
-
-// pending_testing = agent finished, awaiting user verification
-export type TaskStatus = 'pending' | 'in_progress' | 'pending_testing' | 'completed' | 'failed'
-
-export interface FileChange {
-  tool: 'Write' | 'Edit'
-  filePath: string
-  before: string | null
-  after: string
-}
-
-export interface Agent {
-  id: string
-  taskId: string
-  personaId: string
-  status: AgentStatus
-  fileChanges?: FileChange[]
-}
-
-export type AgentStatus = 'idle' | 'working' | 'done' | 'pending' | 'error'
-
-export interface Plan {
-  id: string
-  name: string
-  status: PlanStatus
-  taskIds: string[]
-  originalPrompt?: string       // Original user prompt that created this plan
-  createdAt: Date
-  completedAt?: Date
-}
-
-// Real plans only exist after execution starts
-export type PlanStatus = 'executing' | 'completed' | 'failed' | 'canceled'
-
-// ============ Store State ============
-
-interface GektoState {
-  personas: Persona[]
-  tasks: Record<string, Task>
-  agents: Record<string, Agent>
-  plans: Record<string, Plan>
-  // UI state (not persisted)
-  isWhiteboardOpen: boolean
-}
+// ============ Store Interface (compatible with old useStore API) ============
 
 interface GektoActions {
   // Tasks
-  createTask: (task: Omit<Task, 'chatHistory'> & { chatHistory?: Message[] }) => Task
+  createTask: (task: Task) => Task
   updateTask: (id: string, updates: Partial<Task>) => void
   deleteTask: (id: string) => void
   addMessageToTask: (taskId: string, message: Message) => void
@@ -122,234 +82,174 @@ interface GektoActions {
   // Bulk
   reset: () => void
 
-  // UI state
-  setWhiteboardOpen: (open: boolean) => void
 }
 
-type GektoStore = GektoState & GektoActions
+type GektoStore = GektoAppState & GektoActions
 
-// ============ Default Values ============
+// Build the full store object from server state + actions
+function buildStore(): GektoStore {
+  const state = getServerState()
 
-const DEFAULT_PERSONAS: Persona[] = [
-  { id: 'plain', name: 'Plain', systemPrompt: 'You are a helpful coding assistant.' },
-  { id: 'architect', name: 'Architect', systemPrompt: 'You are a senior software architect. Focus on system design, patterns, and best practices.' },
-  { id: 'codekeeper', name: 'Codekeeper', systemPrompt: 'You are a meticulous code reviewer. Focus on code quality, bugs, and improvements.' },
-]
+  return {
+    ...state,
 
-const INITIAL_STATE: GektoState = {
-  personas: DEFAULT_PERSONAS,
-  tasks: {},
-  agents: {},
-  plans: {},
-  isWhiteboardOpen: false,
-}
-
-// ============ Server Storage ============
-
-const serverStorage: StateStorage = {
-  getItem: async (): Promise<string | null> => {
-    try {
-      const res = await fetch(`/__gekto/api/store`)
-      if (!res.ok) return null
-      const data = await res.json()
-      // Parse dates on load
-      if (data?.state) {
-        const state = data.state
-        for (const task of Object.values(state.tasks || {}) as Task[]) {
-          if (task.chatHistory) {
-            task.chatHistory = task.chatHistory.map((msg: Message & { timestamp: string | Date }) => ({
-              ...msg,
-              timestamp: new Date(msg.timestamp),
-            }))
-          }
-        }
-        for (const plan of Object.values(state.plans || {}) as (Plan & { createdAt: string | Date })[]) {
-          plan.createdAt = new Date(plan.createdAt)
-          if (plan.completedAt) plan.completedAt = new Date(plan.completedAt)
-        }
+    // Tasks
+    createTask: (task) => {
+      const newTask: Task = {
+        id: task.id,
+        name: task.name,
+        description: task.description,
+        prompt: task.prompt,
+        status: task.status,
+        planId: task.planId,
+        files: task.files,
+        assignedAgentId: task.assignedAgentId,
+        dependencies: task.dependencies,
+        result: task.result,
+        error: task.error,
+        sessionId: task.sessionId,
       }
-      return JSON.stringify(data)
-    } catch {
-      return null
-    }
-  },
-  setItem: async (_, value: string): Promise<void> => {
-    try {
-      const data = JSON.parse(value)
-      await fetch(`/__gekto/api/store`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data.state),
-      })
-    } catch (err) {
-      console.error('[Store] Failed to save:', err)
-    }
-  },
-  removeItem: async (): Promise<void> => {
-    // Not implemented - we don't delete the store
-  },
+      sendWs({ type: 'save_state', path: `tasks.${task.id}`, value: newTask })
+      return newTask
+    },
+    updateTask: (id, updates) => {
+      sendWs({ type: 'save_state', path: `tasks.${id}`, value: { ...state.tasks[id], ...updates } })
+    },
+    deleteTask: (id) => {
+      sendWs({ type: 'save_state', path: `tasks.${id}`, value: undefined })
+    },
+    addMessageToTask: (taskId, message) => {
+      // Save message via WS
+      const existing = state.chats[taskId] || []
+      const serialized: Message = {
+        ...message,
+        timestamp: typeof message.timestamp === 'string' ? message.timestamp : new Date().toISOString(),
+      }
+      sendWs({ type: 'save_chat', agentId: taskId, messages: [...existing, serialized] })
+    },
+
+    // Agents
+    createAgent: (agent) => {
+      sendWs({ type: 'save_state', path: `agents.${agent.id}`, value: agent })
+    },
+    updateAgent: (id, updates) => {
+      const existing = state.agents[id]
+      if (existing) {
+        sendWs({ type: 'save_state', path: `agents.${id}`, value: { ...existing, ...updates } })
+      }
+    },
+    deleteAgent: (id) => {
+      sendWs({ type: 'delete_agent', agentId: id })
+    },
+    clearAllAgents: () => {
+      sendWs({ type: 'save_state', path: 'agents', value: {} })
+      sendWs({ type: 'save_state', path: 'visuals', value: {} })
+    },
+    addFileChange: (agentId, change) => {
+      const agent = state.agents[agentId]
+      if (!agent) return
+      const existing = agent.fileChanges ?? []
+      const existingIndex = existing.findIndex(fc => fc.filePath === change.filePath)
+      let updated: FileChange[]
+      if (existingIndex >= 0) {
+        updated = [...existing]
+        updated[existingIndex] = { ...updated[existingIndex], after: change.after, tool: change.tool }
+      } else {
+        updated = [...existing, change]
+      }
+      sendWs({ type: 'save_state', path: `agents.${agentId}.fileChanges`, value: updated })
+    },
+    removeFileChanges: (agentId, filePaths) => {
+      const agent = state.agents[agentId]
+      if (!agent) return
+      const revertedSet = new Set(filePaths)
+      const updated = (agent.fileChanges ?? []).filter(fc => !revertedSet.has(fc.filePath))
+      sendWs({ type: 'save_state', path: `agents.${agentId}.fileChanges`, value: updated })
+    },
+
+    // Plans
+    createPlan: (plan) => {
+      const newPlan: Plan = {
+        ...plan,
+        createdAt: plan.createdAt ? (plan.createdAt instanceof Date ? plan.createdAt.toISOString() : plan.createdAt as string) : new Date().toISOString(),
+      }
+      sendWs({ type: 'save_state', path: `plans.${plan.id}`, value: newPlan })
+      return newPlan
+    },
+    updatePlan: (id, updates) => {
+      const existing = state.plans[id]
+      if (existing) {
+        sendWs({ type: 'save_state', path: `plans.${id}`, value: { ...existing, ...updates } })
+      }
+    },
+    deletePlan: (id) => {
+      sendWs({ type: 'save_state', path: `plans.${id}`, value: undefined })
+    },
+    addTaskToPlan: (planId, taskId) => {
+      const plan = state.plans[planId]
+      if (plan && !plan.taskIds.includes(taskId)) {
+        sendWs({ type: 'save_state', path: `plans.${planId}.taskIds`, value: [...plan.taskIds, taskId] })
+      }
+    },
+    removeTaskFromPlan: (planId, taskId) => {
+      const plan = state.plans[planId]
+      if (plan) {
+        sendWs({ type: 'save_state', path: `plans.${planId}.taskIds`, value: plan.taskIds.filter(id => id !== taskId) })
+      }
+    },
+
+    // Personas
+    createPersona: (persona) => {
+      sendWs({ type: 'save_state', path: 'personas', value: [...state.personas, persona] })
+    },
+    updatePersona: (id, updates) => {
+      const updated = state.personas.map(p => p.id === id ? { ...p, ...updates } : p)
+      sendWs({ type: 'save_state', path: 'personas', value: updated })
+    },
+    deletePersona: (id) => {
+      sendWs({ type: 'save_state', path: 'personas', value: state.personas.filter(p => p.id !== id) })
+    },
+
+    // Bulk
+    reset: () => {
+      sendWs({ type: 'save_state', path: 'tasks', value: {} })
+      sendWs({ type: 'save_state', path: 'agents', value: {} })
+      sendWs({ type: 'save_state', path: 'plans', value: {} })
+      sendWs({ type: 'save_state', path: 'chats', value: {} })
+    },
+  }
 }
 
-// ============ Create Store ============
+// ============ useStore Hook ============
 
-export const useStore = create<GektoStore>()(
-  persist(
-    (set) => ({
-      ...INITIAL_STATE,
+// Cache for selector stability
+let cachedStore: GektoStore | null = null
+let cachedStateRef: GektoAppState | null = null
 
-      // Tasks
-      createTask: (task) => {
-        const newTask: Task = { ...task, chatHistory: task.chatHistory || [] }
-        set((s) => ({ tasks: { ...s.tasks, [task.id]: newTask } }))
-        return newTask
-      },
-      updateTask: (id, updates) => {
-        set((s) => {
-          const task = s.tasks[id]
-          if (!task) return s
-          return { tasks: { ...s.tasks, [id]: { ...task, ...updates } } }
-        })
-      },
-      deleteTask: (id) => {
-        set((s) => ({
-          tasks: Object.fromEntries(Object.entries(s.tasks).filter(([k]) => k !== id)),
-        }))
-      },
-      addMessageToTask: (taskId, message) => {
-        set((s) => {
-          const task = s.tasks[taskId]
-          if (!task) return s
-          return {
-            tasks: {
-              ...s.tasks,
-              [taskId]: { ...task, chatHistory: [...task.chatHistory, message] },
-            },
-          }
-        })
-      },
+function getStore(): GektoStore {
+  const currentState = getServerState()
+  // Only rebuild if server state reference changed
+  if (currentState !== cachedStateRef) {
+    cachedStateRef = currentState
+    cachedStore = buildStore()
+  }
+  return cachedStore!
+}
 
-      // Agents
-      createAgent: (agent) => {
-        set((s) => ({ agents: { ...s.agents, [agent.id]: agent } }))
-      },
-      updateAgent: (id, updates) => {
-        set((s) => {
-          const agent = s.agents[id]
-          if (!agent) return s
-          return { agents: { ...s.agents, [id]: { ...agent, ...updates } } }
-        })
-      },
-      deleteAgent: (id) => {
-        set((s) => ({
-          agents: Object.fromEntries(Object.entries(s.agents).filter(([k]) => k !== id)),
-        }))
-      },
-      clearAllAgents: () => {
-        set({ agents: {} })
-      },
-      addFileChange: (agentId, change) => {
-        set((s) => {
-          const agent = s.agents[agentId]
-          if (!agent) return s
-          const existing = agent.fileChanges ?? []
-          const existingIndex = existing.findIndex(fc => fc.filePath === change.filePath)
-          let updated: FileChange[]
-          if (existingIndex >= 0) {
-            updated = [...existing]
-            updated[existingIndex] = {
-              ...updated[existingIndex],
-              after: change.after,
-              tool: change.tool,
-            }
-          } else {
-            updated = [...existing, change]
-          }
-          return { agents: { ...s.agents, [agentId]: { ...agent, fileChanges: updated } } }
-        })
-      },
-      removeFileChanges: (agentId, filePaths) => {
-        set((s) => {
-          const agent = s.agents[agentId]
-          if (!agent) return s
-          const revertedSet = new Set(filePaths)
-          const updated = (agent.fileChanges ?? []).filter(fc => !revertedSet.has(fc.filePath))
-          return { agents: { ...s.agents, [agentId]: { ...agent, fileChanges: updated } } }
-        })
-      },
-
-      // Plans
-      createPlan: (plan) => {
-        const newPlan: Plan = { ...plan, createdAt: plan.createdAt || new Date() }
-        set((s) => ({ plans: { ...s.plans, [plan.id]: newPlan } }))
-        return newPlan
-      },
-      updatePlan: (id, updates) => {
-        set((s) => {
-          const plan = s.plans[id]
-          if (!plan) return s
-          return { plans: { ...s.plans, [id]: { ...plan, ...updates } } }
-        })
-      },
-      deletePlan: (id) => {
-        set((s) => ({
-          plans: Object.fromEntries(Object.entries(s.plans).filter(([k]) => k !== id)),
-        }))
-      },
-      addTaskToPlan: (planId, taskId) => {
-        set((s) => {
-          const plan = s.plans[planId]
-          if (!plan || plan.taskIds.includes(taskId)) return s
-          return {
-            plans: { ...s.plans, [planId]: { ...plan, taskIds: [...plan.taskIds, taskId] } },
-          }
-        })
-      },
-      removeTaskFromPlan: (planId, taskId) => {
-        set((s) => {
-          const plan = s.plans[planId]
-          if (!plan) return s
-          return {
-            plans: {
-              ...s.plans,
-              [planId]: { ...plan, taskIds: plan.taskIds.filter((id) => id !== taskId) },
-            },
-          }
-        })
-      },
-
-      // Personas
-      createPersona: (persona) => {
-        set((s) => ({ personas: [...s.personas, persona] }))
-      },
-      updatePersona: (id, updates) => {
-        set((s) => ({
-          personas: s.personas.map((p) => (p.id === id ? { ...p, ...updates } : p)),
-        }))
-      },
-      deletePersona: (id) => {
-        set((s) => ({ personas: s.personas.filter((p) => p.id !== id) }))
-      },
-
-      // Bulk
-      reset: () => set(INITIAL_STATE),
-
-      // UI state
-      setWhiteboardOpen: (open) => set({ isWhiteboardOpen: open }),
-    }),
-    {
-      name: 'gekto-store',
-      storage: createJSONStorage(() => serverStorage),
-      partialize: (state) => ({
-        personas: state.personas,
-        tasks: state.tasks,
-        agents: state.agents,
-        plans: state.plans,
-      }),
-    }
+export function useStore<T>(selector: (state: GektoStore) => T): T {
+  return useSyncExternalStore(
+    subscribeToServerState,
+    () => selector(getStore()),
+    () => selector(getStore()),
   )
-)
+}
 
-// ============ Selectors ============
+// Static getState() for use outside React (e.g., in AgentContext WS handlers)
+useStore.getState = (): GektoStore => {
+  return getStore()
+}
+
+// ============ Selectors (unchanged) ============
 
 export const selectTasks = (state: GektoStore) => state.tasks
 export const selectTask = (id: string) => (state: GektoStore) => state.tasks[id]
@@ -358,8 +258,6 @@ export const selectAgent = (id: string) => (state: GektoStore) => state.agents[i
 export const selectPlans = (state: GektoStore) => state.plans
 export const selectPlan = (id: string) => (state: GektoStore) => state.plans[id]
 export const selectPersonas = (state: GektoStore) => state.personas
-
-// ============ Helper to get agent by task ============
 
 export const selectAgentByTaskId = (taskId: string) => (state: GektoStore) =>
   Object.values(state.agents).find((a) => a.taskId === taskId)
