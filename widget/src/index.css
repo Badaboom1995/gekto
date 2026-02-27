@@ -51,20 +51,12 @@
 
 /* Metallic shimmer for in-progress tasks */
 @keyframes task-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% { background: rgba(255, 255, 255, 0.03); }
+  50% { background: rgba(255, 255, 255, 0.08); }
+  100% { background: rgba(255, 255, 255, 0.03); }
 }
 
 .task-shimmer {
-  background: linear-gradient(
-    105deg,
-    rgba(255, 255, 255, 0.02) 0%,
-    rgba(255, 255, 255, 0.06) 25%,
-    rgba(255, 255, 255, 0.1) 50%,
-    rgba(255, 255, 255, 0.06) 75%,
-    rgba(255, 255, 255, 0.02) 100%
-  ) !important;
-  background-size: 200% 100%;
   animation: task-shimmer 2.5s linear infinite;
 }
 

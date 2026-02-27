@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
 import { sendMessage, resumeSession, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles } from './agentPool.js'
 import { processWithTools, generateTaskPrompts, type ExecutionPlan, type PlanCallbacks, type PromptGenCallbacks } from './gektoTools.js'
-import { initGekto, getGektoState, abortGekto, setStateCallback } from './gektoPersistent.js'
+import { initGekto, getGektoState, abortGekto, setStateCallback, resetGektoSession } from './gektoPersistent.js'
 
 // Track connected clients to broadcast Gekto state
 const connectedClients = new Set<WebSocket>()
@@ -142,6 +142,13 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
                   }))
                 },
               }
+
+              // Signal client that planning has started
+              ws.send(JSON.stringify({
+                type: 'planning_started',
+                planId: msg.planId,
+                prompt: msg.prompt,
+              }))
 
               const planResult = await processWithTools(
                 msg.prompt,
@@ -296,7 +303,11 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             break
 
           case 'reset':
-            resetSession(lizardId)
+            if (lizardId === 'master') {
+              resetGektoSession()
+            } else {
+              resetSession(lizardId)
+            }
             ws.send(JSON.stringify({ type: 'state', lizardId, state: 'ready' }))
             break
 

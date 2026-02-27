@@ -59,7 +59,7 @@ function TaskRow({ task, onMarkResolved, onRun, onStop, onRemove, onShowPrompt }
     <div
       className={`flex items-start gap-3 p-3 transition-all duration-300${task.status === 'in_progress' ? ' task-shimmer' : ''}`}
       style={{
-        background: style.bg,
+        ...( task.status !== 'in_progress' ? { background: style.bg } : {}),
         border: style.border,
         opacity: isRemoving ? 0 : 1,
         transform: isRemoving ? 'translateX(20px) scale(0.95)' : 'translateX(0) scale(1)',
@@ -87,7 +87,7 @@ function TaskRow({ task, onMarkResolved, onRun, onStop, onRemove, onShowPrompt }
             ) : (
               <button
                 onClick={() => onRun?.(task.id)}
-                disabled={task.status === 'completed' || task.status === 'pending_testing'}
+                disabled={task.status === 'completed' || task.status === 'pending_testing' || !task.prompt}
                 className="w-6 h-6 flex items-center justify-center transition-all text-white/40 hover:text-white pl-px cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
                 title="Run task"
               >

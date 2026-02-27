@@ -625,6 +625,20 @@ export function GektoProvider({ children }: GektoProviderProps) {
     timing?: { classifyMs?: number; workMs?: number }
   }) => {
     switch (msg.type) {
+      case 'planning_started':
+        // Immediately show plan panel with planning state
+        if (!currentPlan || currentPlan.status === 'completed' || currentPlan.status === 'failed') {
+          setCurrentPlan({
+            id: msg.planId,
+            status: 'planning',
+            originalPrompt: msg.prompt ?? '',
+            tasks: [],
+            createdAt: new Date(),
+          })
+        }
+        setIsPlanPanelOpen(true)
+        break
+
       case 'gekto_text':
         // Accumulate streaming text deltas and forward to master chat
         if (msg.text) {

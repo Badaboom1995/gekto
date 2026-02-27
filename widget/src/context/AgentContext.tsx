@@ -114,6 +114,7 @@ interface AgentContextValue {
   refreshAgentList: () => void
   killAgent: (lizardId: string) => void
   killAllAgents: () => void
+  resetAgent: (lizardId: string) => void
 
   // Gekto state (loading/ready)
   gektoState: GektoState
@@ -638,6 +639,12 @@ export function AgentProvider({ children }: AgentProviderProps) {
     }
   }, [])
 
+  const resetAgent = useCallback((lizardId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'reset', lizardId }))
+    }
+  }, [])
+
   const killAllAgents = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'kill_all' }))
@@ -674,6 +681,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
     refreshAgentList,
     killAgent,
     killAllAgents,
+    resetAgent,
     gektoState,
     setNameExtractor,
   }
