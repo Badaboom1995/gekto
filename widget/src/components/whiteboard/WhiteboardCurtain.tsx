@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Tldraw, Editor, DefaultToolbar, TldrawUiMenuItem, useTools, useIsToolSelected, createShapeId } from 'tldraw'
+import { Tldraw, Editor, DefaultToolbar, DefaultContextMenu, DefaultContextMenuContent, TldrawUiMenuItem, TldrawUiMenuGroup, useTools, useIsToolSelected, useEditor, createShapeId } from 'tldraw'
 import { TaskShapeUtil, setOnOpenChat, setOnViewDiff, setOnTitleChange, setOnAccept } from './TaskShape'
 import { IframeShapeUtil } from './IframeShape'
 import { DiffModal } from './DiffModal'
@@ -61,6 +61,31 @@ function CustomToolbar({ onAddTask, onAddIframe }: { onAddTask: () => void; onAd
         </svg>
       </button>
     </DefaultToolbar>
+  )
+}
+
+// Custom context menu — adds "Order elements" for frames
+function CustomContextMenu() {
+  const editor = useEditor()
+  const selectedShapes = editor.getSelectedShapes()
+  const hasFrame = selectedShapes.some(s => s.type === 'frame')
+
+  return (
+    <DefaultContextMenu>
+      {hasFrame && (
+        <TldrawUiMenuGroup id="frame-actions">
+          <TldrawUiMenuItem
+            id="order-elements"
+            label="Order elements"
+            onSelect={() => {
+              // TODO: implement ordering logic
+              console.log('[Whiteboard] Order elements:', selectedShapes.filter(s => s.type === 'frame').map(s => s.id))
+            }}
+          />
+        </TldrawUiMenuGroup>
+      )}
+      <DefaultContextMenuContent />
+    </DefaultContextMenu>
   )
 }
 
@@ -289,6 +314,7 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
             }}
             components={{
               Toolbar: () => <CustomToolbar onAddTask={handleAddTask} onAddIframe={handleAddIframe} />,
+              ContextMenu: CustomContextMenu,
               ActionsMenu: null,
               HelpMenu: null,
               NavigationPanel: null,

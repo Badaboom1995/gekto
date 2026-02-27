@@ -87,7 +87,7 @@ export function MasterLizard() {
         storeClearAllAgents()
       },
       danger: true,
-      holdDuration: 1000,
+      holdDuration: 500,
     },
   ]
 
