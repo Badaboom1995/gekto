@@ -159,7 +159,7 @@ export function SwarmProvider({
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [chatMode, setChatMode] = useState<ChatMode>('task')
   const lizardInstancesRef = useRef<Map<string, LizardInstance>>(new Map())
-  const [isWhiteboardOpen, setWhiteboardOpen] = useState(false)
+  const [isWhiteboardOpen, setWhiteboardOpen] = useState(true)
   const [selectionRect, setSelectionRect] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const [isShiftPressed, setIsShiftPressed] = useState(false)
   const initializedFromServerRef = useRef(false)

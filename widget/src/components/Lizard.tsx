@@ -52,10 +52,11 @@ export function Lizard({ agentId }: LizardProps) {
   const isChatOpen = activeChatId === agentId
 
   const [chatSize, setChatSize] = useState(getChatSize)
-  const [showDone, setShowDone] = useState(false)
+  // Initialize showDone from server-persisted agent status (survives reload)
+  const [showDone, setShowDone] = useState(() => agent?.status === 'done')
   const prevStateRef = useRef(agentState)
 
-  // Show done icon when agent finishes
+  // Show done icon when agent finishes (transition detection for live updates)
   useEffect(() => {
     if (prevStateRef.current === 'working' && agentState === 'ready') {
       setShowDone(true)

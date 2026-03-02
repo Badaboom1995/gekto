@@ -182,8 +182,11 @@ export function AgentProvider({ children }: AgentProviderProps) {
             } else if (msg.state === 'ready') {
               updateSession(lizardId, { state: 'ready', currentTool: null, queuePosition: 0 })
               const session = sessionsRef.current.get(lizardId)
-              const finalStatus = session?.lastStatus || 'pending'
-              syncAgentStatus(lizardId, finalStatus)
+              // Only sync status if we observed the agent complete in this browser session.
+              // On reload, lastStatus is undefined — trust server state (which already has 'done').
+              if (session?.lastStatus) {
+                syncAgentStatus(lizardId, session.lastStatus)
+              }
 
               // Worker completion
               if (lizardId.startsWith('worker_')) {
