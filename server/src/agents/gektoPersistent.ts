@@ -366,6 +366,15 @@ export function resetGektoSession(): void {
   }
 }
 
+// Restore a previous session by switching to its session ID
+export function restoreGektoSession(sessionId: string): void {
+  gektoSessionId = sessionId
+  // Kill current process to force restart with the restored session ID
+  if (opusProcess) {
+    opusProcess.kill('SIGTERM')
+  }
+}
+
 // === Abort current task (like pressing ESC in CLI) ===
 
 export function abortGekto(): boolean {

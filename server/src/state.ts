@@ -81,6 +81,15 @@ export interface LizardVisual {
   color: string
 }
 
+export interface GektoSession {
+  id: string
+  title: string
+  messages: Message[]
+  plan?: ExecutionPlan
+  gektoSessionId: string
+  createdAt: string
+}
+
 export interface GektoAppState {
   plan: ExecutionPlan | null
   tasks: Record<string, Task>
@@ -89,6 +98,7 @@ export interface GektoAppState {
   chats: Record<string, Message[]>
   personas: Persona[]
   plans: Record<string, Plan>
+  gektoSessions: GektoSession[]
 }
 
 // ============ Default Values ============
@@ -108,6 +118,7 @@ function createEmptyState(): GektoAppState {
     chats: {},
     personas: DEFAULT_PERSONAS,
     plans: {},
+    gektoSessions: [],
   }
 }
 

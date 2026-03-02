@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useCallback, type DragEvent } from 'react'
-import { FileTextIcon, TrashIcon, ImageIcon } from '@radix-ui/react-icons'
+import { FileTextIcon, TrashIcon, ImageIcon, CounterClockwiseClockIcon, Cross2Icon } from '@radix-ui/react-icons'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
 import { useGekto } from '../context/GektoContext'
 import { useStore } from '../store/store'
-import { getServerState } from '../hooks/useServerState'
+import { useServerState, getServerState, type GektoSession } from '../hooks/useServerState'
 
 const MASTER_ID = 'master'
 const CHAT_SIZE_KEY = 'gekto-chat-size'
@@ -87,11 +87,13 @@ export function ChatWindow({
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
   const [stagedImages, setStagedImages] = useState<string[]>([])
   const [isDraggingOver, setIsDraggingOver] = useState(false)
+  const [showSessionHistory, setShowSessionHistory] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const historyDropdownRef = useRef<HTMLDivElement>(null)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
   const {
@@ -107,6 +109,8 @@ export function ChatWindow({
   } = useAgent()
 
   const { createPlan, currentPlan, openPlanPanel, cancelPlan, markTaskInProgress } = useGekto()
+  const { state: serverState, send: sendToServer } = useServerState()
+  const gektoSessions = serverState.gektoSessions || []
 
   // Get agent/task names from global store
   const agents = useStore((s) => s.agents)
@@ -150,6 +154,7 @@ export function ChatWindow({
     }, 2000)
     return () => clearInterval(interval)
   }, [isAgentWorking])
+
 
   // Subscribe to sessions to trigger re-render on state changes
   const agentState = sessions.get(lizardId)?.state ?? getLizardState(lizardId)
@@ -496,6 +501,39 @@ export function ChatWindow({
   }
 
   const handleClearChat = async () => {
+    // Archive current session before clearing (only for master with user messages beyond greeting)
+    if (isMaster) {
+      const hasUserContent = messages.some(m => m.sender === 'user')
+      if (hasUserContent) {
+        const toIso = (v: Date | string): string => v instanceof Date ? v.toISOString() : String(v)
+        const archiveMessages = messages.map(m => ({
+          id: m.id,
+          text: m.text,
+          sender: m.sender,
+          timestamp: toIso(m.timestamp),
+          isTerminal: m.isTerminal,
+          images: m.images,
+          toolUse: m.toolUse ? {
+            tool: m.toolUse.tool,
+            input: m.toolUse.input,
+            fullInput: m.toolUse.fullInput,
+            status: m.toolUse.status,
+            startTime: toIso(m.toolUse.startTime),
+            endTime: m.toolUse.endTime ? toIso(m.toolUse.endTime) : undefined,
+          } : undefined,
+        }))
+
+        const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'archive_gekto_session',
+            messages: archiveMessages,
+            plan: currentPlan,
+          }))
+        }
+      }
+    }
+
     // Reset to default greeting
     const greeting = lizardId === MASTER_ID
       ? `**Hey, I'm Gekto** — your project manager.\n\nI research the codebase, break your request into parallel tasks, and spawn agents to execute them.`
@@ -525,6 +563,46 @@ export function ChatWindow({
         })),
       }))
     }
+  }
+
+  const handleRestoreSession = (sessionId: string) => {
+    // Find session locally and set messages directly (avoids race with server diff)
+    const session = gektoSessions.find(s => s.id === sessionId)
+    if (session) {
+      setMessages(session.messages.map(m => ({
+        ...m,
+        timestamp: typeof m.timestamp === 'string' ? new Date(m.timestamp) : m.timestamp,
+        toolUse: m.toolUse ? {
+          ...m.toolUse,
+          startTime: typeof m.toolUse.startTime === 'string' ? new Date(m.toolUse.startTime) : m.toolUse.startTime,
+          endTime: m.toolUse.endTime
+            ? (typeof m.toolUse.endTime === 'string' ? new Date(m.toolUse.endTime) : m.toolUse.endTime)
+            : undefined,
+        } : undefined,
+      })) as Message[])
+    }
+    // Tell server to restore plan + switch Claude session ID
+    sendToServer({ type: 'restore_gekto_session', sessionId })
+    setShowSessionHistory(false)
+  }
+
+  const handleDeleteSession = (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation()
+    sendToServer({ type: 'delete_gekto_session', sessionId })
+  }
+
+  const formatTimeAgo = (isoDate: string): string => {
+    const now = Date.now()
+    const then = new Date(isoDate).getTime()
+    const diffMs = now - then
+    const diffMin = Math.floor(diffMs / 60000)
+    if (diffMin < 1) return 'just now'
+    if (diffMin < 60) return `${diffMin}m ago`
+    const diffHr = Math.floor(diffMin / 60)
+    if (diffHr < 24) return `${diffHr}h ago`
+    const diffDay = Math.floor(diffHr / 24)
+    if (diffDay < 30) return `${diffDay}d ago`
+    return new Date(isoDate).toLocaleDateString()
   }
 
 
@@ -579,6 +657,61 @@ export function ChatWindow({
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {isMaster && (
+            <div className="relative" ref={historyDropdownRef}>
+              <button
+                onClick={() => setShowSessionHistory(prev => !prev)}
+                className="text-white/40 hover:text-white/70 transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded"
+                title="Session history"
+              >
+                <CounterClockwiseClockIcon width={14} height={14} />
+              </button>
+              {showSessionHistory && (
+                <div
+                  className="absolute right-0 top-8 z-50 overflow-hidden"
+                  style={{
+                    width: 280,
+                    maxHeight: 320,
+                    background: 'rgb(35, 35, 45)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: 8,
+                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+                  }}
+                >
+                  <div className="px-3 py-2 text-xs text-white/50 font-medium" style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    Session History
+                  </div>
+                  <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    {gektoSessions.length === 0 ? (
+                      <div className="px-3 py-4 text-xs text-white/30 text-center">
+                        No past sessions
+                      </div>
+                    ) : (
+                      gektoSessions.map((session: GektoSession) => (
+                        <div
+                          key={session.id}
+                          className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-white/5 transition-colors group"
+                          onClick={() => handleRestoreSession(session.id)}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs text-white/70 truncate">{session.title}</div>
+                            <div className="text-[10px] text-white/30">{formatTimeAgo(session.createdAt)}</div>
+                          </div>
+                          <button
+                            onClick={(e) => handleDeleteSession(e, session.id)}
+                            className="flex-shrink-0 text-white/20 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center"
+                            title="Delete session"
+                          >
+                            <Cross2Icon width={10} height={10} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <button
             onClick={handleClearChat}
             className="text-white/40 hover:text-white/70 transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded"
@@ -917,13 +1050,6 @@ export function ChatWindow({
           />
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center justify-center w-6 h-6 text-white/30 hover:text-white/60 transition-colors hover:bg-white/10 rounded"
-                title="Attach image"
-              >
-                <ImageIcon width={14} height={14} />
-              </button>
               {isMaster && (
                 <>
                   <button
@@ -957,11 +1083,18 @@ export function ChatWindow({
                 </>
               )}
             </div>
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center justify-center w-6 h-6 text-white/30 hover:text-white/60 transition-colors rounded cursor-pointer"
+                title="Attach image"
+              >
+                <ImageIcon width={16} height={16} />
+              </button>
               {agentState === 'working' ? (
                 <button
                   onClick={() => killAgent(lizardId)}
-                  className="flex items-center gap-1 px-2 py-1 text-xs transition-all hover:bg-red-500/30 rounded"
+                  className="flex items-center gap-1 px-2 py-1 text-xs transition-all hover:bg-red-500/30 rounded cursor-pointer"
                   style={{
                     background: 'rgba(239, 68, 68, 0.15)',
                     color: 'rgba(239, 68, 68, 0.8)',

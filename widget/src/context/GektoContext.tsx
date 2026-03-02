@@ -552,6 +552,14 @@ export function GektoProvider({ children }: GektoProviderProps) {
         }
         break
 
+      case 'session_restored':
+        // Plan is restored via state_diff from server (mutate('plan', ...))
+        // If the restored session had a plan, open the panel
+        if (msg.plan) {
+          setIsPlanPanelOpen(true)
+        }
+        break
+
       case 'plan_created':
         gektoStreamingText = ''
         // Plan is already stored in server state via mutate() in agentWebSocket.ts

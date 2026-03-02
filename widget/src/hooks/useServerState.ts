@@ -111,6 +111,15 @@ export interface ExecutionPlan {
   completedAt?: string
 }
 
+export interface GektoSession {
+  id: string
+  title: string
+  messages: Message[]
+  plan?: ExecutionPlan
+  gektoSessionId: string
+  createdAt: string
+}
+
 export interface GektoAppState {
   plan: ExecutionPlan | null
   tasks: Record<string, Task>
@@ -119,6 +128,7 @@ export interface GektoAppState {
   chats: Record<string, Message[]>
   personas: Persona[]
   plans: Record<string, Plan>
+  gektoSessions: GektoSession[]
 }
 
 // ============ State Store (external store for useSyncExternalStore) ============
@@ -133,6 +143,7 @@ let currentState: GektoAppState = {
   chats: {},
   personas: [],
   plans: {},
+  gektoSessions: [],
 }
 
 const listeners = new Set<Listener>()

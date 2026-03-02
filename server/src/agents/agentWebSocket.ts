@@ -4,8 +4,9 @@ import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
 import { sendMessage, resumeSession, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles, saveImagesToTempFiles } from './agentPool.js'
 import { processWithTools, generateTaskPrompts, type ExecutionPlan, type PlanCallbacks, type PromptGenCallbacks } from './gektoTools.js'
-import { initGekto, getGektoState, abortGekto, setStateCallback, resetGektoSession } from './gektoPersistent.js'
-import { getState, mutate, mutateBatch, addClient, removeClient, sendSnapshot, getClients, type Agent, type Task, type Message } from '../state.js'
+import { randomUUID } from 'crypto'
+import { initGekto, getGektoState, abortGekto, setStateCallback, resetGektoSession, restoreGektoSession, getGektoSessionId } from './gektoPersistent.js'
+import { getState, mutate, mutateBatch, addClient, removeClient, sendSnapshot, getClients, type Agent, type Task, type Message, type GektoSession } from '../state.js'
 
 let gektoInitialized = false
 
@@ -450,6 +451,71 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
               mutate(`agents.${msg.agentId}`, undefined)
               mutate(`visuals.${msg.agentId}`, undefined)
             }
+            return
+          }
+
+          case 'archive_gekto_session': {
+            const { messages: archiveMessages, plan: archivePlan } = msg as {
+              messages: Message[]
+              plan?: unknown
+            }
+            const archiveSessionId = getGektoSessionId()
+
+            // Extract title from first user message
+            const firstUserMsg = archiveMessages.find(m => m.sender === 'user')
+            const title = firstUserMsg
+              ? firstUserMsg.text.slice(0, 50) + (firstUserMsg.text.length > 50 ? '...' : '')
+              : 'Untitled session'
+
+            const session: GektoSession = {
+              id: randomUUID(),
+              title,
+              messages: archiveMessages,
+              plan: archivePlan as GektoSession['plan'],
+              gektoSessionId: archiveSessionId,
+              createdAt: new Date().toISOString(),
+            }
+
+            const state = getState()
+            const updated = [session, ...state.gektoSessions].slice(0, 50)
+            mutate('gektoSessions', updated)
+            return
+          }
+
+          case 'restore_gekto_session': {
+            const { sessionId: restoreId } = msg as { sessionId: string }
+            const state = getState()
+            const session = state.gektoSessions.find(s => s.id === restoreId)
+            if (!session) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }))
+              return
+            }
+
+            // Restore chat messages
+            mutate('chats.master', session.messages)
+
+            // Restore plan if session had one
+            if (session.plan) {
+              mutate('plan', session.plan)
+            }
+
+            // Switch Claude session ID
+            restoreGektoSession(session.gektoSessionId)
+
+            // Notify client
+            ws.send(JSON.stringify({
+              type: 'session_restored',
+              sessionId: session.id,
+              plan: session.plan || null,
+            }))
+            return
+          }
+
+          case 'delete_gekto_session': {
+            const { sessionId: deleteId } = msg as { sessionId: string }
+            const state = getState()
+            const filtered = state.gektoSessions.filter(s => s.id !== deleteId)
+            mutate('gektoSessions', filtered)
             return
           }
 
