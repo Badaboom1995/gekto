@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Tldraw, Editor, DefaultToolbar, DefaultContextMenu, DefaultContextMenuContent, TldrawUiMenuItem, TldrawUiMenuGroup, useTools, useIsToolSelected, useEditor, createShapeId } from 'tldraw'
+import { Tldraw, Editor, DefaultToolbar, DefaultContextMenu, DefaultContextMenuContent, TldrawUiMenuItem, TldrawUiMenuGroup, useTools, useIsToolSelected, useEditor, useValue, createShapeId } from 'tldraw'
 import { TaskShapeUtil, setOnOpenChat, setOnViewDiff, setOnTitleChange, setOnAccept } from './TaskShape'
 import { IframeShapeUtil } from './IframeShape'
 import { DiffModal } from './DiffModal'
@@ -87,6 +87,108 @@ function CustomContextMenu() {
       )}
       <DefaultContextMenuContent />
     </DefaultContextMenu>
+  )
+}
+
+// Floating input below selected frame — uses tldraw's InFrontOfTheCanvas + useValue for reactivity
+function SelectedFrameInput() {
+  const editor = useEditor()
+  const lastFocusedFrameRef = useRef<string | null>(null)
+
+  const info = useValue(
+    'selected frame bounds',
+    () => {
+      const selected = editor.getSelectedShapes()
+      if (selected.length !== 1 || selected[0].type !== 'frame') return null
+      const shape = selected[0]
+      const screenBounds = editor.getViewportScreenBounds()
+      const pagePoint = editor.pageToScreen({ x: shape.x, y: shape.y })
+      const bounds = editor.getShapeGeometry(shape).bounds
+      const zoom = editor.getZoomLevel()
+      return {
+        id: shape.id,
+        x: pagePoint.x - screenBounds.x,
+        y: pagePoint.y - screenBounds.y + bounds.h * zoom,
+        width: bounds.w * zoom,
+      }
+    },
+    [editor]
+  )
+
+  if (!info) {
+    lastFocusedFrameRef.current = null
+    return null
+  }
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: info.x,
+        top: info.y + 8,
+        width: info.width,
+        pointerEvents: 'all',
+      }}
+      onPointerDown={(e) => {
+        e.stopPropagation()
+        editor.markEventAsHandled(e.nativeEvent)
+      }}
+    >
+      <div style={{ display: 'flex', gap: 0 }}>
+        <input
+          ref={(el) => {
+            if (el && lastFocusedFrameRef.current !== info.id) {
+              lastFocusedFrameRef.current = info.id
+              requestAnimationFrame(() => el.focus())
+            }
+          }}
+          type="text"
+          placeholder="Send a message..."
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+              console.log('[FrameInput]', info.id, e.currentTarget.value)
+              e.currentTarget.value = ''
+            }
+            e.stopPropagation()
+          }}
+          style={{
+            flex: 1,
+            padding: '8px 12px',
+            background: 'rgba(30, 30, 40, 0.95)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: '8px 0 0 8px',
+            color: 'white',
+            fontSize: 13,
+            outline: 'none',
+          }}
+        />
+        <button
+          onClick={(e) => {
+            const input = (e.currentTarget.previousSibling as HTMLInputElement)
+            if (input?.value.trim()) {
+              console.log('[FrameInput]', info.id, input.value)
+              input.value = ''
+            }
+          }}
+          style={{
+            padding: '8px 10px',
+            background: 'rgba(30, 30, 40, 0.95)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderLeft: 'none',
+            borderRadius: '0 8px 8px 0',
+            color: 'rgba(255, 255, 255, 0.5)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 10l-5 5 5 5" />
+            <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+          </svg>
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -320,6 +422,7 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
             components={{
               Toolbar: () => <CustomToolbar onAddTask={handleAddTask} onAddIframe={handleAddIframe} />,
               ContextMenu: CustomContextMenu,
+              InFrontOfTheCanvas: SelectedFrameInput,
               ActionsMenu: null,
               HelpMenu: null,
               NavigationPanel: null,
@@ -372,6 +475,7 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
         />,
         portalContainer
       )}
+
     </>
   )
 }
