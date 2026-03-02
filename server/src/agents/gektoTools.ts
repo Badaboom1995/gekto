@@ -68,6 +68,7 @@ export async function processWithTools(
   activeAgents: { lizardId: string; isProcessing: boolean; queueLength: number }[] = [],
   callbacks?: PlanCallbacks,
   existingPlan?: ExistingPlanContext,
+  imagePaths?: string[],
 ): Promise<GektoToolResult> {
   // Build context prompt with active agents and existing plan
   let contextPrompt = prompt
@@ -97,6 +98,12 @@ The user's message above is a modification request. You can:
 If modifying, use update_plan with ALL tasks (existing + changes).]`
   }
 
+  // Append image file paths to prompt so Gekto can reference them
+  if (imagePaths && imagePaths.length > 0) {
+    const imageRefs = imagePaths.map(p => `  - ${p}`).join('\n')
+    contextPrompt += `\n\n[The user attached ${imagePaths.length} image(s). Use the Read tool to view them:\n${imageRefs}]`
+  }
+
   // Send to persistent process (system prompt + --json-schema already configured there)
   const planCallbacks: GektoCallbacks = {
     onToolStart: callbacks?.onToolStart ? (tool, input) => callbacks.onToolStart!(tool, input) : undefined,
@@ -119,6 +126,7 @@ If modifying, use update_plan with ALL tasks (existing + changes).]`
       return {
         type: 'build',
         plan: createPlanFromTasks(parsed.tasks || [], planId, prompt, parsed.reasoning, parsed.buildPrompt),
+        message: parsed.message || parsed.reasoning,
       }
 
     case 'reply':

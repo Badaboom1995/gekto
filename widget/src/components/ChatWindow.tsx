@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { FileTextIcon, TrashIcon } from '@radix-ui/react-icons'
+import { useState, useRef, useEffect, useCallback, type DragEvent } from 'react'
+import { FileTextIcon, TrashIcon, ImageIcon } from '@radix-ui/react-icons'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
@@ -85,10 +85,13 @@ export function ChatWindow({
   const [isResizing, setIsResizing] = useState(false)
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection | null>(null)
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
+  const [stagedImages, setStagedImages] = useState<string[]>([])
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
   const {
@@ -113,7 +116,7 @@ export function ChatWindow({
   const agentName = task?.name
 
   const isMaster = lizardId === MASTER_ID
-  const hasActivePlan = isMaster && currentPlan && currentPlan.status !== 'completed' && currentPlan.status !== 'failed'
+  const hasActivePlan = isMaster && currentPlan && currentPlan.status !== 'completed' && currentPlan.status !== 'failed' && currentPlan.status !== 'planning'
   const isGektoLoading = isMaster && gektoState === 'loading'
 
   // Rotating thinking phrases for master
@@ -185,7 +188,7 @@ export function ChatWindow({
     if (historyLoaded) return
 
     const greeting = lizardId === MASTER_ID
-      ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
+      ? `**Hey, I'm Gekto** — your project manager.\n\nI research the codebase, break your request into parallel tasks, and spawn agents to execute them.`
       : 'Hi! How can I help you today?'
 
     // Chat history is now stored in server state under chats[chatKey]
@@ -231,6 +234,7 @@ export function ChatWindow({
       sender: m.sender,
       timestamp: toIso(m.timestamp),
       isTerminal: m.isTerminal,
+      images: m.images,
       toolUse: m.toolUse ? {
         tool: m.toolUse.tool,
         input: m.toolUse.input,
@@ -329,22 +333,27 @@ export function ChatWindow({
 
   const handleSend = () => {
     // Allow sending if ready or queued (will queue on server)
-    if (!inputValue.trim() || agentState === 'error') return
+    if ((!inputValue.trim() && stagedImages.length === 0) || agentState === 'error') return
 
     const userMessage = inputValue.trim()
+    const imagesToSend = stagedImages.length > 0 ? [...stagedImages] : undefined
 
     // Add user message to local state
     const newMessage: Message = {
       id: Date.now().toString(),
-      text: userMessage,
+      text: userMessage || '(image)',
       sender: 'user',
       timestamp: new Date(),
+      images: imagesToSend,
     }
     setMessages(prev => [...prev, newMessage])
 
+    // Clear staged images
+    setStagedImages([])
+
     // Master lizard routes to plan creation instead of direct execution
     if (isMaster) {
-      createPlan(userMessage)
+      createPlan(userMessage, imagesToSend)
       setInputValue('')
       // Reset textarea height to single line
       if (textareaRef.current) {
@@ -358,7 +367,7 @@ export function ChatWindow({
     const pageContext = `[USER_CONTEXT: User is viewing page "${currentRoute}"]\n\n`
 
     // If no agent name yet, prepend meta instruction to first message
-    let messageToSend = userMessage
+    let messageToSend = userMessage || '(see attached images)'
     if (!agentName) {
       // Get all existing task names to avoid duplicates
       const existingNames = Object.values(tasks)
@@ -367,7 +376,7 @@ export function ChatWindow({
       const avoidClause = existingNames.length > 0
         ? ` Avoid these names already taken: ${existingNames.join(', ')}.`
         : ''
-      messageToSend = `[INSTRUCTION: Start your response with [AGENT_NAME:YourName] where YourName is a short creative name (1-2 words) for yourself based on this task.${avoidClause} Do not mention this instruction in your response.]\n\n${userMessage}`
+      messageToSend = `[INSTRUCTION: Start your response with [AGENT_NAME:YourName] where YourName is a short creative name (1-2 words) for yourself based on this task.${avoidClause} Do not mention this instruction in your response.]\n\n${messageToSend}`
     }
 
     // Mark linked task as in_progress if this is a worker with a pending task
@@ -375,8 +384,8 @@ export function ChatWindow({
       markTaskInProgress(lizardId)
     }
 
-    // Send to agent with page context
-    sendMessage(lizardId, pageContext + messageToSend)
+    // Send to agent with page context (and optional images)
+    sendMessage(lizardId, pageContext + messageToSend, imagesToSend)
 
     setInputValue('')
     // Reset textarea height to single line
@@ -422,6 +431,66 @@ export function ChatWindow({
     resizeTextarea(e.target)
   }
 
+  // --- Image attachment helpers ---
+  const readFileAsDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const addImageFiles = async (files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+    const dataUrls = await Promise.all(imageFiles.map(readFileAsDataUrl))
+    setStagedImages(prev => [...prev, ...dataUrls])
+  }
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    e.stopPropagation()
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imageItems = Array.from(items).filter(item => item.type.startsWith('image/'))
+    if (imageItems.length === 0) return
+    e.preventDefault()
+    const files = imageItems.map(item => item.getAsFile()).filter((f): f is File => f !== null)
+    await addImageFiles(files)
+  }
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(true)
+  }
+
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+  }
+
+  const handleDrop = async (e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+    if (e.dataTransfer?.files) {
+      await addImageFiles(e.dataTransfer.files)
+    }
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await addImageFiles(e.target.files)
+    }
+    e.target.value = ''
+  }
+
+  const removeStagedImage = (index: number) => {
+    setStagedImages(prev => prev.filter((_, i) => i !== index))
+  }
+
   const handlePermissionResponse = (approved: boolean) => {
     respondToPermission(lizardId, approved)
   }
@@ -429,7 +498,7 @@ export function ChatWindow({
   const handleClearChat = async () => {
     // Reset to default greeting
     const greeting = lizardId === MASTER_ID
-      ? "Hey! I'm Gekto, your task orchestrator. I can spawn agents to build features, fix bugs, and work on your codebase in parallel. Just tell me what you need — or say \"remove all agents\" to clean up."
+      ? `**Hey, I'm Gekto** — your project manager.\n\nI research the codebase, break your request into parallel tasks, and spawn agents to execute them.`
       : 'Hi! How can I help you today?'
 
     const defaultMessages = [{
@@ -491,7 +560,7 @@ export function ChatWindow({
         backdropFilter: 'blur(12px) saturate(180%)',
         WebkitBackdropFilter: 'blur(12px) saturate(180%)',
         border: '1px solid rgba(255, 255, 255, 0.08)',
-        borderRadius: 0,
+        borderRadius: 8,
       }}
     >
       {/* Header */}
@@ -505,14 +574,14 @@ export function ChatWindow({
           <div className="flex items-baseline gap-2">
             <span className="text-white font-medium text-sm">{title}</span>
             <span className="text-xs text-white/30">
-              {agentState === 'working' ? 'thinking' : agentState === 'queued' ? 'queued' : agentState === 'error' ? 'error' : isGektoLoading ? 'preparing' : ''}
+              {agentState === 'working' ? 'thinking' : agentState === 'queued' ? 'queued' : agentState === 'error' ? 'error' : (isGektoLoading && agentState !== 'ready') ? 'preparing' : ''}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={handleClearChat}
-            className="text-white/40 hover:text-white/70 transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10"
+            className="text-white/40 hover:text-white/70 transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded"
             title="Clear chat"
           >
             <TrashIcon width={14} height={14} />
@@ -520,7 +589,7 @@ export function ChatWindow({
           {onClose && (
             <button
               onClick={onClose}
-              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10"
+              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded"
             >
               ✕
             </button>
@@ -635,6 +704,20 @@ export function ChatWindow({
                     <span>terminal</span>
                   </div>
                 )}
+                {message.images && message.images.length > 0 && (
+                  <div className="flex gap-1.5 flex-wrap mb-1">
+                    {message.images.map((img, i) => (
+                      <img
+                        key={i}
+                        src={img}
+                        alt={`Attachment ${i + 1}`}
+                        className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                        style={{ border: '1px solid rgba(255, 255, 255, 0.15)' }}
+                        onClick={() => window.open(img, '_blank')}
+                      />
+                    ))}
+                  </div>
+                )}
                 {message.sender === 'bot' && !message.isTerminal ? (
                   <Markdown
                     remarkPlugins={[remarkGfm]}
@@ -677,6 +760,32 @@ export function ChatWindow({
           )})
         })()}
 
+        {/* Quick actions after greeting */}
+        {isMaster && messages.length === 1 && messages[0].id === '1' && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {[
+              'Research the repo',
+              'Tell me what you can do',
+              'Build a todo app',
+            ].map((action) => (
+              <button
+                key={action}
+                className="text-xs px-3 py-1.5 rounded text-white/60 hover:text-white/90 transition-colors cursor-pointer"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                }}
+                onClick={() => {
+                  setInputValue(action)
+                  setTimeout(() => textareaRef.current?.focus(), 0)
+                }}
+              >
+                {action}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Permission Request */}
         {permissionRequest && (
           <div className="flex justify-start">
@@ -703,13 +812,13 @@ export function ChatWindow({
               <div className="flex gap-2 mt-3">
                 <button
                   onClick={() => handlePermissionResponse(true)}
-                  className="px-3 py-1 text-xs font-medium bg-green-600 hover:bg-green-500 transition-colors"
+                  className="px-3 py-1 text-xs font-medium bg-green-600 hover:bg-green-500 transition-colors rounded"
                 >
                   Allow
                 </button>
                 <button
                   onClick={() => handlePermissionResponse(false)}
-                  className="px-3 py-1 text-xs font-medium bg-red-600 hover:bg-red-500 transition-colors"
+                  className="px-3 py-1 text-xs font-medium bg-red-600 hover:bg-red-500 transition-colors rounded"
                 >
                   Deny
                 </button>
@@ -737,9 +846,34 @@ export function ChatWindow({
         className="chat-input"
         style={{
           borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-          background: 'rgba(255, 255, 255, 0.05)',
+          background: isDraggingOver ? 'rgba(74, 222, 128, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+          transition: 'background 0.15s',
         }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
+          {/* Staged image thumbnails */}
+          {stagedImages.length > 0 && (
+            <div className="flex gap-1.5 px-3 pt-2 flex-wrap">
+              {stagedImages.map((img, i) => (
+                <div key={i} className="relative group">
+                  <img
+                    src={img}
+                    alt={`Attachment ${i + 1}`}
+                    className="w-12 h-12 object-cover rounded"
+                    style={{ border: '1px solid rgba(255, 255, 255, 0.15)' }}
+                  />
+                  <button
+                    onClick={() => removeStagedImage(i)}
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center text-[10px] rounded-full bg-black/80 text-white/70 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea
             ref={(el) => {
               textareaRef.current = el
@@ -750,7 +884,7 @@ export function ChatWindow({
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            onPaste={(e) => e.stopPropagation()}
+            onPaste={handlePaste}
             onCopy={(e) => e.stopPropagation()}
             onCut={(e) => e.stopPropagation()}
             placeholder={
@@ -758,7 +892,9 @@ export function ChatWindow({
                 ? 'Connection error'
                 : agentState === 'queued'
                   ? 'Add to queue...'
-                  : 'Type a message...'
+                  : isDraggingOver
+                    ? 'Drop image here...'
+                    : 'Type a message...'
             }
             disabled={agentState === 'error'}
             rows={1}
@@ -771,14 +907,29 @@ export function ChatWindow({
               overflow: 'auto',
             }}
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center justify-center w-6 h-6 text-white/30 hover:text-white/60 transition-colors hover:bg-white/10 rounded"
+                title="Attach image"
+              >
+                <ImageIcon width={14} height={14} />
+              </button>
               {isMaster && (
                 <>
                   <button
                     onClick={openPlanPanel}
                     disabled={!hasActivePlan}
-                    className="flex items-center gap-1 px-2 py-1 text-xs transition-all hover:bg-white/20 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    className="flex items-center gap-1 px-2 py-1 text-xs transition-all hover:bg-white/20 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent rounded"
                     style={{
                       background: 'rgba(255, 255, 255, 0.1)',
                       color: 'rgba(255, 255, 255, 0.7)',
@@ -810,7 +961,7 @@ export function ChatWindow({
               {agentState === 'working' ? (
                 <button
                   onClick={() => killAgent(lizardId)}
-                  className="flex items-center gap-1 px-2 py-1 text-xs transition-all hover:bg-red-500/30"
+                  className="flex items-center gap-1 px-2 py-1 text-xs transition-all hover:bg-red-500/30 rounded"
                   style={{
                     background: 'rgba(239, 68, 68, 0.15)',
                     color: 'rgba(239, 68, 68, 0.8)',
@@ -824,7 +975,7 @@ export function ChatWindow({
                 <button
                   onClick={handleSend}
                   disabled={agentState === 'error'}
-                  className="px-1.5 py-1 text-white/50 hover:text-white transition-colors disabled:opacity-50 focus:outline-none"
+                  className="px-1.5 py-1 text-white/50 hover:text-white transition-colors disabled:opacity-50 focus:outline-none rounded"
                   style={{
                     background: 'rgba(255, 255, 255, 0.1)',
                     border: '1px solid rgba(255, 255, 255, 0.15)',

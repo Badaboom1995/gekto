@@ -77,7 +77,7 @@ interface LizardSession {
 
 interface AgentContextValue {
   // Actions
-  sendMessage: (lizardId: string, message: string) => void
+  sendMessage: (lizardId: string, message: string, images?: string[]) => void
   respondToPermission: (lizardId: string, approved: boolean) => void
 
   // Session state - exposed for reactivity
@@ -493,17 +493,21 @@ export function AgentProvider({ children }: AgentProviderProps) {
     }
   }, [updateSession])
 
-  const sendMessage = useCallback((lizardId: string, message: string) => {
+  const sendMessage = useCallback((lizardId: string, message: string, images?: string[]) => {
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) return
 
     updateSession(lizardId, { state: 'working' })
 
-    ws.send(JSON.stringify({
+    const payload: Record<string, unknown> = {
       type: 'chat',
       lizardId,
       content: message,
-    }))
+    }
+    if (images && images.length > 0) {
+      payload.images = images
+    }
+    ws.send(JSON.stringify(payload))
   }, [updateSession])
 
   const respondToPermission = useCallback((lizardId: string, approved: boolean) => {

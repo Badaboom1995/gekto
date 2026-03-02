@@ -5,6 +5,7 @@ import { useAgent } from '../context/AgentContext'
 
 interface GektoPlanPanelProps {
   position: { x: number; y: number }
+  height?: number
   onClose: () => void
 }
 
@@ -57,7 +58,7 @@ function TaskRow({ task, onMarkResolved, onRun, onStop, onRemove, onShowPrompt }
 
   return (
     <div
-      className={`flex items-start gap-3 p-3 transition-all duration-300${task.status === 'in_progress' ? ' task-shimmer' : ''}`}
+      className={`flex items-start gap-3 p-3 transition-all duration-300 rounded${task.status === 'in_progress' ? ' task-shimmer' : ''}`}
       style={{
         ...( task.status !== 'in_progress' ? { background: style.bg } : {}),
         border: style.border,
@@ -142,7 +143,7 @@ function TaskRow({ task, onMarkResolved, onRun, onStop, onRemove, onShowPrompt }
             <button
               onClick={() => task.prompt && onShowPrompt?.(task)}
               disabled={!task.prompt}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-2 py-1 text-xs transition-all disabled:opacity-30 disabled:cursor-not-allowed rounded"
               style={{
                 background: 'rgba(255, 255, 255, 0.05)',
                 color: 'rgba(255, 255, 255, 0.5)',
@@ -156,7 +157,7 @@ function TaskRow({ task, onMarkResolved, onRun, onStop, onRemove, onShowPrompt }
             <button
               onClick={() => task.prompt && onShowPrompt?.(task)}
               disabled={!task.prompt}
-              className="w-6 h-6 flex items-center justify-center transition-all text-white/40 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+              className="w-6 h-6 flex items-center justify-center transition-all text-white/40 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer rounded"
               style={{
                 background: 'rgba(255, 255, 255, 0.05)',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -169,7 +170,7 @@ function TaskRow({ task, onMarkResolved, onRun, onStop, onRemove, onShowPrompt }
           {task.status === 'pending_testing' && !isRemoving && (
             <button
               onClick={handleMarkResolved}
-              className="px-2 py-1 text-xs transition-colors"
+              className="px-2 py-1 text-xs transition-colors rounded"
               style={{
                 background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
                 color: 'rgb(114, 222, 128)',
@@ -191,7 +192,7 @@ function TaskRow({ task, onMarkResolved, onRun, onStop, onRemove, onShowPrompt }
   )
 }
 
-export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
+export function GektoPlanPanel({ position, height, onClose }: GektoPlanPanelProps) {
   const [modalPrompt, setModalPrompt] = useState<Task | null>(null)
   const { currentPlan, generatePrompts, executePlan, buildPlan, cancelPlan, markTaskResolved, runTask, removeTask } = useGekto()
   const { killAgent } = useAgent()
@@ -219,12 +220,12 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
         top: position.y,
         zIndex: 1003,
         width: 400,
-        maxHeight: 600,
+        height: height || 500,
         pointerEvents: 'auto',
       }}
     >
       <div
-        className="flex flex-col overflow-hidden"
+        className="flex flex-col overflow-hidden rounded-lg h-full"
         style={{
           background: 'linear-gradient(135deg, rgb(35, 35, 45), rgb(45, 45, 55))',
           backdropFilter: 'blur(12px) saturate(180%)',
@@ -244,7 +245,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             {showBuildButton && (
               <button
                 onClick={() => buildPlan()}
-                className="px-3 py-1 text-xs font-medium transition-colors"
+                className="px-3 py-1 text-xs font-medium transition-colors rounded"
                 style={{
                   background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
                   color: 'rgb(114, 222, 128)',
@@ -256,7 +257,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             )}
             <button
               onClick={onClose}
-              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10"
+              className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded"
             >
               ✕
             </button>
@@ -264,74 +265,72 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
         </div>
 
 
-        {/* Gekto's reasoning */}
-        {currentPlan.reasoning && (
-          <div
-            className="px-4 py-3 text-xs"
-            style={{
-              borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-              background: 'rgba(191, 255, 107, 0.05)',
-            }}
-          >
-            <div className="flex items-start gap-2">
-              <span className="text-[#BFFF6B]">💡</span>
-              <span className="text-white/70">{currentPlan.reasoning}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Prompt generation progress bar */}
-        {currentPlan.status === 'generating_prompts' && (
-          <div className="px-4 py-2">
-            <div className="flex items-center gap-2 text-xs text-white/60 mb-1">
-              <span>Generating prompts</span>
-              <span>{promptsGeneratedCount}/{totalCount}</span>
-            </div>
-            <div
-              className="h-1 rounded-full overflow-hidden"
-              style={{ background: 'rgba(255, 255, 255, 0.1)' }}
-            >
-              <div
-                className="h-full rounded-full transition-all duration-300"
-                style={{
-                  width: `${promptProgress}%`,
-                  background: 'linear-gradient(90deg, #22c55e, #4ade80)',
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Progress bar */}
-        {currentPlan.status === 'executing' && (
-          <div className="px-4 py-2">
-            <div className="flex items-center gap-2 text-xs text-white/60 mb-1">
-              <span>Progress</span>
-              <span>{completedCount}/{totalCount}</span>
-              {pendingTestingCount > 0 && (
-                <span className="text-green-300">({pendingTestingCount} pending review)</span>
-              )}
-            </div>
-            <div
-              className="h-1 rounded-full overflow-hidden"
-              style={{ background: 'rgba(255, 255, 255, 0.1)' }}
-            >
-              <div
-                className="h-full rounded-full transition-all duration-300"
-                style={{
-                  width: `${progress}%`,
-                  background: 'linear-gradient(90deg, #BFFF6B, #6BFF9B)',
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Tasks list */}
+        {/* Scrollable content: reasoning + progress + tasks */}
         <div
-          className="flex-1 p-3 space-y-2 overflow-y-auto"
-          style={{ maxHeight: 400 }}
+          className="flex-1 p-3 space-y-2 overflow-y-auto min-h-0"
         >
+          {/* Gekto's reasoning */}
+          {currentPlan.reasoning && (
+            <div
+              className="px-3 py-2.5 text-xs rounded"
+              style={{
+                background: 'rgba(191, 255, 107, 0.05)',
+                border: '1px solid rgba(191, 255, 107, 0.1)',
+              }}
+            >
+              <div className="flex items-start gap-2">
+                <span className="text-[#BFFF6B]">💡</span>
+                <span className="text-white/70">{currentPlan.reasoning}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Prompt generation progress bar */}
+          {currentPlan.status === 'generating_prompts' && (
+            <div className="px-1 py-1">
+              <div className="flex items-center gap-2 text-xs text-white/60 mb-1">
+                <span>Generating prompts</span>
+                <span>{promptsGeneratedCount}/{totalCount}</span>
+              </div>
+              <div
+                className="h-1 rounded-full overflow-hidden"
+                style={{ background: 'rgba(255, 255, 255, 0.1)' }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${promptProgress}%`,
+                    background: 'linear-gradient(90deg, #22c55e, #4ade80)',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Progress bar */}
+          {currentPlan.status === 'executing' && (
+            <div className="px-1 py-1">
+              <div className="flex items-center gap-2 text-xs text-white/60 mb-1">
+                <span>Progress</span>
+                <span>{completedCount}/{totalCount}</span>
+                {pendingTestingCount > 0 && (
+                  <span className="text-green-300">({pendingTestingCount} pending review)</span>
+                )}
+              </div>
+              <div
+                className="h-1 rounded-full overflow-hidden"
+                style={{ background: 'rgba(255, 255, 255, 0.1)' }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${progress}%`,
+                    background: 'linear-gradient(90deg, #BFFF6B, #6BFF9B)',
+                  }}
+                />
+              </div>
+            </div>
+          )}
           {currentPlan.status === 'planning' ? (
             <div className="flex items-center justify-center py-8">
               <div className="text-white/60 text-sm">
@@ -374,7 +373,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             <>
               <button
                 onClick={() => generatePrompts()}
-                className="flex-1 px-4 py-2 text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-2 text-sm font-medium transition-colors rounded"
                 style={{
                   background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
                   color: 'rgb(114, 222, 128)',
@@ -385,7 +384,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
               </button>
               <button
                 onClick={cancelPlan}
-                className="px-4 py-2 text-sm font-medium transition-colors"
+                className="px-4 py-2 text-sm font-medium transition-colors rounded"
                 style={{
                   background: 'rgba(255, 255, 255, 0.05)',
                   color: 'rgba(255, 255, 255, 0.6)',
@@ -400,7 +399,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
             <>
               <button
                 onClick={() => executePlan()}
-                className="flex-1 px-4 py-2 text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-2 text-sm font-medium transition-colors rounded"
                 style={{
                   background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
                   color: 'rgb(114, 222, 128)',
@@ -411,7 +410,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
               </button>
               <button
                 onClick={cancelPlan}
-                className="px-4 py-2 text-sm font-medium transition-colors"
+                className="px-4 py-2 text-sm font-medium transition-colors rounded"
                 style={{
                   background: 'rgba(255, 255, 255, 0.05)',
                   color: 'rgba(255, 255, 255, 0.6)',
@@ -425,7 +424,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           {currentPlan.status === 'generating_prompts' && (
             <button
               disabled
-              className="flex-1 px-4 py-2 text-sm font-medium opacity-50 cursor-not-allowed"
+              className="flex-1 px-4 py-2 text-sm font-medium opacity-50 cursor-not-allowed rounded"
               style={{
                 background: 'linear-gradient(to right bottom, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.35))',
                 color: 'rgb(114, 222, 128)',
@@ -438,7 +437,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           {currentPlan.status === 'executing' && (
             <button
               onClick={cancelPlan}
-              className="flex-1 px-4 py-2 text-sm font-medium transition-colors"
+              className="flex-1 px-4 py-2 text-sm font-medium transition-colors rounded"
               style={{
                 background: 'rgba(239, 68, 68, 0.1)',
                 color: 'rgba(239, 68, 68, 0.8)',
@@ -474,7 +473,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
           <div className="absolute inset-0" style={{ background: 'rgba(0, 0, 0, 0.7)' }} />
           <div className="flex items-center justify-center w-full h-full">
             <div
-              className="relative overflow-hidden flex flex-col"
+              className="relative overflow-hidden flex flex-col rounded-lg"
               onClick={e => e.stopPropagation()}
               style={{
                 width: 700,
@@ -495,7 +494,7 @@ export function GektoPlanPanel({ position, onClose }: GektoPlanPanelProps) {
                 </span>
                 <button
                   onClick={() => setModalPrompt(null)}
-                  className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10 shrink-0"
+                  className="text-white/60 hover:text-white transition-colors w-6 h-6 flex items-center justify-center hover:bg-white/10 shrink-0 rounded"
                 >
                   ✕
                 </button>

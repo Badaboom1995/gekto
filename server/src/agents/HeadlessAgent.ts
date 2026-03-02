@@ -50,9 +50,16 @@ export class HeadlessAgent implements AgentProvider {
     return this.currentProc !== null && !this.currentProc.killed
   }
 
-  async send(message: string, callbacks?: StreamCallbacks): Promise<AgentResponse> {
+  async send(message: string, callbacks?: StreamCallbacks, imagePaths?: string[]): Promise<AgentResponse> {
+    // Append image file paths to the message so Claude can read them
+    let finalMessage = message
+    if (imagePaths && imagePaths.length > 0) {
+      const imageRefs = imagePaths.map(p => `  - ${p}`).join('\n')
+      finalMessage += `\n\n[The user attached ${imagePaths.length} image(s). Use the Read tool to view them:\n${imageRefs}]`
+    }
+
     const args = [
-      '-p', message,
+      '-p', finalMessage,
       '--output-format', 'stream-json',
       '--verbose',
       '--model', 'claude-opus-4-5-20251101',

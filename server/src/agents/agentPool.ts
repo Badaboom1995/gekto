@@ -1,6 +1,8 @@
 import path from 'path'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
+import { randomUUID } from 'crypto'
+import { tmpdir } from 'os'
 import { WebSocket } from 'ws'
 import type { AgentProvider, StreamCallbacks, AgentResponse, FileChange } from './types.js'
 import { HeadlessAgent } from './HeadlessAgent.js'
@@ -12,6 +14,7 @@ interface QueuedMessage {
   callbacks: StreamCallbacks
   resolve: (response: AgentResponse) => void
   reject: (error: Error) => void
+  imagePaths?: string[]
 }
 
 interface LizardSession {
@@ -125,12 +128,39 @@ function safeSend(session: LizardSession, data: object) {
   }
 }
 
+// Save base64 data URL images to temp files and return file paths
+export function saveImagesToTempFiles(images: string[]): string[] {
+  const paths: string[] = []
+  const dir = path.join(tmpdir(), 'gekto-images')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  for (const dataUrl of images) {
+    const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/)
+    if (!match) continue
+    const ext = match[1] === 'jpeg' ? 'jpg' : match[1]
+    const buffer = Buffer.from(match[2], 'base64')
+    const filePath = path.join(dir, `gekto-img-${randomUUID()}.${ext}`)
+    writeFileSync(filePath, buffer)
+    paths.push(filePath)
+  }
+  return paths
+}
+
 export async function sendMessage(
   lizardId: string,
   message: string,
-  ws: WebSocket
+  ws: WebSocket,
+  images?: string[]
 ): Promise<AgentResponse> {
   const session = getOrCreateSession(lizardId, ws)
+
+  // Save images to temp files and build the final message
+  let finalMessage = message
+  let imagePaths: string[] | undefined
+  if (images && images.length > 0) {
+    imagePaths = saveImagesToTempFiles(images)
+  }
 
   // Create streaming callbacks that use session's current WebSocket
   const callbacks: StreamCallbacks = {
@@ -185,7 +215,7 @@ export async function sendMessage(
   // If already processing, queue the message
   if (session.isProcessing) {
     return new Promise((resolve, reject) => {
-      session.queue.push({ message, ws, callbacks, resolve, reject })
+      session.queue.push({ message: finalMessage, ws, callbacks, resolve, reject, imagePaths })
       const position = session.queue.length
       ws.send(JSON.stringify({
         type: 'queued',
@@ -196,7 +226,7 @@ export async function sendMessage(
   }
 
   // Process immediately
-  return processMessage(lizardId, session, message, ws, callbacks)
+  return processMessage(lizardId, session, finalMessage, ws, callbacks, imagePaths)
 }
 
 async function processMessage(
@@ -204,13 +234,14 @@ async function processMessage(
   session: LizardSession,
   message: string,
   _ws: WebSocket,  // Kept for queue compatibility, but we use session.currentWs
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  imagePaths?: string[]
 ): Promise<AgentResponse> {
   session.isProcessing = true
   safeSend(session, { type: 'state', lizardId, state: 'working' })
 
   try {
-    const response = await session.agent.send(message, callbacks)
+    const response = await session.agent.send(message, callbacks, imagePaths)
 
     safeSend(session, {
       type: 'response',
@@ -236,7 +267,7 @@ async function processMessage(
     // Process next queued message if any
     if (session.queue.length > 0) {
       const next = session.queue.shift()!
-      processMessage(lizardId, session, next.message, next.ws, next.callbacks)
+      processMessage(lizardId, session, next.message, next.ws, next.callbacks, next.imagePaths)
         .then(next.resolve)
         .catch(next.reject)
     }

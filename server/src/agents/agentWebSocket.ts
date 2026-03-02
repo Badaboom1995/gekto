@@ -2,7 +2,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 import type { Server } from 'http'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
-import { sendMessage, resumeSession, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles } from './agentPool.js'
+import { sendMessage, resumeSession, resetSession, getWorkingDir, getActiveSessions, killSession, killAllSessions, attachWebSocket, revertFiles, saveImagesToTempFiles } from './agentPool.js'
 import { processWithTools, generateTaskPrompts, type ExecutionPlan, type PlanCallbacks, type PromptGenCallbacks } from './gektoTools.js'
 import { initGekto, getGektoState, abortGekto, setStateCallback, resetGektoSession } from './gektoPersistent.js'
 import { getState, mutate, mutateBatch, addClient, removeClient, sendSnapshot, getClients, type Agent, type Task, type Message } from '../state.js'
@@ -113,6 +113,13 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             // Set master lizard to working state
             ws.send(JSON.stringify({ type: 'state', lizardId: 'master', state: 'working' }))
 
+            // Save attached images to temp files
+            const planImages = msg.images as string[] | undefined
+            let planImagePaths: string[] | undefined
+            if (planImages && planImages.length > 0) {
+              planImagePaths = saveImagesToTempFiles(planImages)
+            }
+
             try {
               // Streaming callbacks for tool events and text
               const planCallbacks: PlanCallbacks = {
@@ -157,11 +164,21 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
                 getActiveSessions(),
                 planCallbacks,
                 msg.existingPlan,
+                planImagePaths,
               )
 
               if (planResult.type === 'build' && planResult.plan) {
                 // Store plan in server state
                 mutate('plan', planResult.plan)
+
+                // Show reasoning/message in chat so the user knows what Gekto decided
+                if (planResult.message) {
+                  ws.send(JSON.stringify({
+                    type: 'gekto_chat',
+                    planId: msg.planId,
+                    message: planResult.message,
+                  }))
+                }
 
                 ws.send(JSON.stringify({
                   type: 'plan_created',
@@ -306,6 +323,27 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
           case 'save_chat': {
             const { agentId, messages } = msg as { agentId: string; messages: Message[] }
             mutate(`chats.${agentId}`, messages)
+
+            // Prune old chats — keep only the 50 most recent
+            const MAX_CHATS = 50
+            const allChats = getState().chats
+            const chatKeys = Object.keys(allChats)
+            if (chatKeys.length > MAX_CHATS) {
+              // Sort by latest message timestamp (oldest first)
+              const sorted = chatKeys
+                .map(key => {
+                  const msgs = allChats[key]
+                  const lastMsg = msgs?.[msgs.length - 1]
+                  const ts = lastMsg?.timestamp ? new Date(lastMsg.timestamp as unknown as string).getTime() : 0
+                  return { key, ts }
+                })
+                .sort((a, b) => a.ts - b.ts)
+
+              const toRemove = sorted.slice(0, sorted.length - MAX_CHATS)
+              for (const { key } of toRemove) {
+                mutate(`chats.${key}`, undefined)
+              }
+            }
             return
           }
 
@@ -448,7 +486,8 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
               if (state.agents[lizardId]) {
                 mutate(`agents.${lizardId}.status`, 'working')
               }
-              await sendMessage(lizardId, msg.content, ws)
+              const images = (msg.images as string[] | undefined)
+              await sendMessage(lizardId, msg.content, ws, images)
             } catch (err) {
               console.error(`[Agent] [${lizardId}] Error:`, err)
             }

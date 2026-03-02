@@ -39,17 +39,18 @@ export function MasterLizard() {
   const [isHovered, setIsHovered] = useState(false)
   const [chatSize, setChatSize] = useState(getChatSize)
 
-  // Sync plan panel with chat: open when chat opens (if plan exists), close when chat closes
+  // Sync plan panel with chat: open when chat opens (if a real plan exists), close when chat closes
   const prevChatOpen = useRef(false)
+  const hasMeaningfulPlan = currentPlan && currentPlan.status !== 'planning'
   useEffect(() => {
-    if (isChatOpen && !prevChatOpen.current && currentPlan) {
+    if (isChatOpen && !prevChatOpen.current && hasMeaningfulPlan) {
       openPlanPanel()
     }
     if (!isChatOpen && prevChatOpen.current) {
       closePlanPanel()
     }
     prevChatOpen.current = isChatOpen
-  }, [isChatOpen, currentPlan, openPlanPanel, closePlanPanel])
+  }, [isChatOpen, hasMeaningfulPlan, openPlanPanel, closePlanPanel])
 
   const menuItems = [
     {
@@ -254,6 +255,7 @@ export function MasterLizard() {
               : position.x + MASTER_LIZARD_SIZE + 20,       // Right of master
             y: position.y + MASTER_LIZARD_SIZE - chatSize.height,
           }}
+          height={chatSize.height}
           onClose={closePlanPanel}
         />
       )}

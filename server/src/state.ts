@@ -16,6 +16,7 @@ export interface Message {
   sender: 'user' | 'bot' | 'system'
   timestamp: string // ISO string for serialization
   isTerminal?: boolean
+  images?: string[]
   toolUse?: {
     tool: string
     input?: string

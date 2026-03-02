@@ -14,6 +14,7 @@ export interface Message {
   sender: 'user' | 'bot' | 'system'
   timestamp: Date | string
   isTerminal?: boolean
+  images?: string[]
   toolUse?: {
     tool: string
     input?: string

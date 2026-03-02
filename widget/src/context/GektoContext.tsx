@@ -34,7 +34,7 @@ interface GektoContextValue {
   setDirectMode: (enabled: boolean) => void
 
   // Plan actions
-  createPlan: (prompt: string) => Promise<void>
+  createPlan: (prompt: string, images?: string[]) => Promise<void>
   generatePrompts: () => void
   executePlan: () => Promise<void>
   buildPlan: () => Promise<void>
@@ -99,7 +99,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
   const [directMode, setDirectMode] = useState(false)
 
   // Send message to Gekto - server will decide if planning is needed
-  const createPlan = useCallback(async (prompt: string) => {
+  const createPlan = useCallback(async (prompt: string, images?: string[]) => {
     const ws = getWebSocket()
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return
@@ -115,7 +115,7 @@ export function GektoProvider({ children }: GektoProviderProps) {
       isWorker: a.id.startsWith('worker_'),
     }))
 
-    ws.send(JSON.stringify({
+    const payload: Record<string, unknown> = {
       type: 'create_plan',
       prompt,
       planId,
@@ -131,7 +131,11 @@ export function GektoProvider({ children }: GektoProviderProps) {
         })),
         reasoning: currentPlan.reasoning,
       } : undefined,
-    }))
+    }
+    if (images && images.length > 0) {
+      payload.images = images
+    }
+    ws.send(JSON.stringify(payload))
   }, [getWebSocket, storeAgents, directMode, currentPlan])
 
   // Generate prompts for the current plan (Step 2 — parallel LLM calls)
@@ -483,9 +487,8 @@ export function GektoProvider({ children }: GektoProviderProps) {
   }) => {
     switch (msg.type) {
       case 'planning_started':
-        // Show plan panel — plan state will arrive via state_diff
+        // Set temporary planning state — panel will open when plan_created arrives
         if (!currentPlan || currentPlan.status === 'completed' || currentPlan.status === 'failed') {
-          // Set a temporary planning state on the server
           send({
             type: 'save_state',
             path: 'plan',
@@ -498,7 +501,6 @@ export function GektoProvider({ children }: GektoProviderProps) {
             },
           })
         }
-        setIsPlanPanelOpen(true)
         break
 
       case 'gekto_text':

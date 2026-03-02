@@ -3,7 +3,7 @@
 // === Agent Provider Interface ===
 
 export interface AgentProvider {
-  send(message: string, callbacks?: StreamCallbacks): Promise<AgentResponse>
+  send(message: string, callbacks?: StreamCallbacks, imagePaths?: string[]): Promise<AgentResponse>
   kill(): boolean
   isRunning(): boolean
   getSessionId(): string | null
