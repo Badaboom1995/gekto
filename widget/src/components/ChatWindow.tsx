@@ -67,6 +67,7 @@ interface ChatWindowProps {
   onClose?: () => void
   onResize?: (size: { width: number; height: number }) => void
   inputRef?: React.RefObject<HTMLTextAreaElement | HTMLInputElement | null>
+  onHeaderMouseDown?: (e: React.MouseEvent) => void
 }
 
 export function ChatWindow({
@@ -77,6 +78,7 @@ export function ChatWindow({
   onClose,
   onResize,
   inputRef,
+  onHeaderMouseDown,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [historyLoaded, setHistoryLoaded] = useState(false)
@@ -646,7 +648,9 @@ export function ChatWindow({
         className="flex items-center justify-between px-4 py-3"
         style={{
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          cursor: onHeaderMouseDown ? 'grab' : undefined,
         }}
+        onMouseDown={onHeaderMouseDown}
       >
         <div className="flex flex-col">
           <div className="flex items-baseline gap-2">
@@ -656,7 +660,7 @@ export function ChatWindow({
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
           {isMaster && (
             <div className="relative" ref={historyDropdownRef}>
               <button

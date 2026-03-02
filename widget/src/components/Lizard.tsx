@@ -192,6 +192,7 @@ export function Lizard({ agentId }: LizardProps) {
             title={chatMode === 'plan' ? 'Plan Mode' : 'Gekto Chat'}
             onClose={closeChat}
             onResize={setChatSize}
+            onHeaderMouseDown={handlers.onMouseDown}
           />
         </div>
       )}

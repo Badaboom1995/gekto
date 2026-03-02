@@ -242,6 +242,7 @@ export function MasterLizard() {
             onClose={closeChat}
             onResize={setChatSize}
             inputRef={inputRef}
+            onHeaderMouseDown={handlers.onMouseDown}
           />
         </div>
       )}
