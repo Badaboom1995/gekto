@@ -5,7 +5,7 @@ import { TaskShapeUtil, setOnOpenChat, setOnViewDiff, setOnTitleChange, setOnAcc
 import { IframeShapeUtil } from './IframeShape'
 import { DiffModal } from './DiffModal'
 import { useAgentShapeSync } from './useAgentShapeSync'
-import { useStore } from '../../store/store'
+import { useStore, type Agent, type Task } from '../../store/store'
 import { useSwarm } from '../../context/SwarmContext'
 import { useAgent } from '../../context/AgentContext'
 import { ChatWindow } from '../ChatWindow'
@@ -125,6 +125,8 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
   const agents = useStore((s) => s.agents)
   const tasks = useStore((s) => s.tasks)
   const deleteAgent = useStore((s) => s.deleteAgent)
+  const createAgent = useStore((s) => s.createAgent)
+  const createTask = useStore((s) => s.createTask)
   const updateTask = useStore((s) => s.updateTask)
 
   // Register the open function in effect
@@ -201,10 +203,17 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
     [agents, tasks, sessions, workingDir]
   )
 
+  // Restore agent+task on undo (Cmd+Z restores shape after deletion)
+  const handleRestoreAgent = useCallback((agent: Agent, task?: Task) => {
+    if (task) createTask(task)
+    createAgent(agent)
+  }, [createTask, createAgent])
+
   // Sync agents to TaskShapes (Zustand → tldraw)
   // Positions managed by tldraw via persistenceKey
   // When user deletes shape, agent is removed from store
-  useAgentShapeSync(editor, agentsWithTasks, deleteAgent)
+  // When user undoes deletion, agent is restored from buffer
+  useAgentShapeSync(editor, agentsWithTasks, deleteAgent, handleRestoreAgent)
 
   // Setup portal container on mount (preload)
   useEffect(() => {
@@ -230,10 +239,6 @@ export function WhiteboardCurtain({ persistenceKey = 'gekto-whiteboard-v2' }: Wh
       div.remove()
     }
   }, [])
-
-  // Get store actions for creating tasks/agents
-  const createTask = useStore((s) => s.createTask)
-  const createAgent = useStore((s) => s.createAgent)
 
   const handleAddTask = useCallback(() => {
     if (!editor) return

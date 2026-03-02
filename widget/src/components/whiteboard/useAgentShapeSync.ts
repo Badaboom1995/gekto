@@ -12,6 +12,9 @@ const COLS = 4
 const START_X = 100
 const START_Y = 100
 
+// How long to keep deleted agent data for undo (30 seconds)
+const UNDO_BUFFER_TTL = 30_000
+
 // Map Claude tool names to shape status
 const TOOL_TO_STATUS: Record<string, ShapeStatus> = {
   Read: 'READ',
@@ -93,21 +96,44 @@ interface AgentWithTask {
   fileChangeCount?: number
 }
 
+interface DeletedAgentData {
+  agent: Agent
+  task?: Task
+  deletedAt: number
+}
+
 /**
  * Syncs agents to TaskShapes on tldraw canvas.
  * Creates shapes exactly like the "Add Tasks" button does.
  * Also syncs deletions back: when user deletes a shape, the agent is removed from store.
+ * Supports undo: when tldraw restores a shape via Cmd+Z, the agent is re-created.
  */
 export function useAgentShapeSync(
   editor: Editor | null,
   agentsWithTasks: AgentWithTask[],
-  onDeleteAgent?: (agentId: string) => void
+  onDeleteAgent?: (agentId: string) => void,
+  onRestoreAgent?: (agent: Agent, task?: Task) => void
 ) {
   // Map agent ID -> shape ID (since we use random IDs like Add Tasks button)
   const agentToShapeRef = useRef<Map<string, TLShapeId>>(new Map())
   const gridIndexRef = useRef(0)
   // Track shapes we're deleting ourselves (to avoid triggering onDeleteAgent)
   const deletingShapesRef = useRef<Set<TLShapeId>>(new Set())
+  // Buffer of recently deleted agents for undo support
+  const deletedAgentsRef = useRef<Map<string, DeletedAgentData>>(new Map())
+
+  // Periodically clean expired entries from undo buffer
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      for (const [id, data] of deletedAgentsRef.current) {
+        if (now - data.deletedAt > UNDO_BUFFER_TTL) {
+          deletedAgentsRef.current.delete(id)
+        }
+      }
+    }, 10_000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Main sync effect
   useEffect(() => {
@@ -160,6 +186,9 @@ export function useAgentShapeSync(
           }
         }
       }
+
+      // Clear from undo buffer if agent is back (restored successfully)
+      deletedAgentsRef.current.delete(agent.id)
     }
 
     // 2. Update props for EXISTING agents (no position change)
@@ -192,14 +221,15 @@ export function useAgentShapeSync(
       }
     }
 
-    // 4. Clean up orphaned shapes (have agentId but agent doesn't exist in Zustand)
+    // 4. Clean up orphaned shapes (have agentId but agent doesn't exist in store)
+    // Skip shapes whose agentId is in the undo buffer (might be restored via Cmd+Z)
     const allTaskShapes = editor.getCurrentPageShapes().filter(
       s => (s.type as string) === 'task'
     )
     for (const shape of allTaskShapes) {
       const taskShape = shape as unknown as TaskShape
       const agentId = taskShape.props?.agentId
-      if (agentId && !currentAgentIds.has(agentId)) {
+      if (agentId && !currentAgentIds.has(agentId) && !deletedAgentsRef.current.has(agentId)) {
         deletingShapesRef.current.add(shape.id)
         editor.deleteShape(shape.id)
         deletingShapesRef.current.delete(shape.id)
@@ -228,30 +258,60 @@ export function useAgentShapeSync(
     }
   }, [editor])
 
-  // Listen for shape deletions from tldraw (user deletes shape -> delete agent)
+  // Listen for shape deletions AND additions from tldraw
+  // Deletions: user deletes shape -> delete agent (+ buffer for undo)
+  // Additions: tldraw undo restores shape -> restore agent from buffer
   useEffect(() => {
     if (!editor || !onDeleteAgent) return
 
     const agentToShape = agentToShapeRef.current
 
-    const handleChange = (change: { changes: { removed?: Record<string, unknown> } }) => {
+    const handleChange = (change: { changes: { removed?: Record<string, unknown>; added?: Record<string, unknown> } }) => {
       const removed = change.changes.removed
-      if (!removed) return
+      const added = change.changes.added
 
-      for (const shape of Object.values(removed) as Array<{ id: TLShapeId; type: string; props?: { agentId?: string } }>) {
-        // Skip if we triggered this deletion ourselves
-        if (deletingShapesRef.current.has(shape.id)) continue
+      // Handle deletions: buffer agent data, then delete
+      if (removed) {
+        for (const shape of Object.values(removed) as Array<{ id: TLShapeId; type: string; props?: { agentId?: string } }>) {
+          if (deletingShapesRef.current.has(shape.id)) continue
+          if (shape.type === 'task' && shape.props?.agentId) {
+            const agentId = shape.props.agentId
 
-        // Only handle task shapes with agentId
-        if (shape.type === 'task' && shape.props?.agentId) {
-          const agentId = shape.props.agentId
-          onDeleteAgent(agentId)
-          agentToShape.delete(agentId)
+            // Snapshot agent+task data before deleting (for undo)
+            const agentData = agentsWithTasks.find(a => a.agent.id === agentId)
+            if (agentData) {
+              deletedAgentsRef.current.set(agentId, {
+                agent: { ...agentData.agent },
+                task: agentData.task ? { ...agentData.task } : undefined,
+                deletedAt: Date.now(),
+              })
+            }
+
+            onDeleteAgent(agentId)
+            agentToShape.delete(agentId)
+          }
+        }
+      }
+
+      // Handle additions: if shape has agentId in undo buffer, restore agent
+      if (added && onRestoreAgent) {
+        for (const shape of Object.values(added) as Array<{ id: TLShapeId; type: string; props?: { agentId?: string } }>) {
+          if (shape.type === 'task' && shape.props?.agentId) {
+            const agentId = shape.props.agentId
+            const buffered = deletedAgentsRef.current.get(agentId)
+            if (buffered) {
+              // Re-link the shape mapping
+              agentToShape.set(agentId, shape.id)
+              // Restore agent on the server
+              onRestoreAgent(buffered.agent, buffered.task)
+              // Keep in buffer until sync confirms (cleared in main effect)
+            }
+          }
         }
       }
     }
 
     const unlisten = editor.store.listen(handleChange, { source: 'user', scope: 'document' })
     return unlisten
-  }, [editor, onDeleteAgent])
+  }, [editor, onDeleteAgent, onRestoreAgent, agentsWithTasks])
 }
