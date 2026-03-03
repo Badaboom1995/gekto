@@ -87,6 +87,7 @@ export function ChatWindow({
   const [isResizing, setIsResizing] = useState(false)
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection | null>(null)
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
+  const [expandedThinking, setExpandedThinking] = useState<Set<string>>(new Set())
   const [stagedImages, setStagedImages] = useState<string[]>([])
   const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [showSessionHistory, setShowSessionHistory] = useState(false)
@@ -179,9 +180,29 @@ export function ChatWindow({
 
 
   // Handle incoming messages from agent (name extraction is done in AgentContext)
-  const handleAgentMessage = useCallback((message: Message & { isStreaming?: boolean }) => {
-    if (message.isStreaming) {
-      // Streaming message: replace existing streaming entry or append
+  const handleAgentMessage = useCallback((message: Message & { isStreaming?: boolean; isThinking?: boolean; isFinalize?: boolean; toolResult?: { tool: string; content: string; toolUseId: string } }) => {
+    if (message.isFinalize) {
+      // Finalize: stop streaming animations, add cost/duration to last text message
+      setMessages(prev => {
+        const updated = prev.map(m => {
+          if (m.isStreaming) {
+            return { ...m, isStreaming: false }
+          }
+          return m
+        })
+        // Add cost/duration to the last non-tool bot message
+        if (message.cost != null || message.duration != null) {
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].sender === 'bot' && !updated[i].toolUse && !updated[i].isThinking) {
+              updated[i] = { ...updated[i], cost: message.cost, duration: message.duration }
+              break
+            }
+          }
+        }
+        return updated
+      })
+    } else if (message.isThinking) {
+      // Thinking message: replace existing thinking entry with same ID, or append
       setMessages(prev => {
         const idx = prev.findIndex(m => m.id === message.id)
         if (idx >= 0) {
@@ -191,12 +212,38 @@ export function ChatWindow({
         }
         return [...prev, message]
       })
+    } else if (message.isStreaming) {
+      // Streaming text: replace existing entry with same ID, or append
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === message.id)
+        if (idx >= 0) {
+          const updated = [...prev]
+          updated[idx] = message
+          return updated
+        }
+        return [...prev, message]
+      })
+    } else if (message.toolResult) {
+      // Tool result: attach content to the last tool message for this tool
+      setMessages(prev => {
+        const updated = [...prev]
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i].toolUse && updated[i].toolUse!.tool === message.toolResult!.tool) {
+            updated[i] = {
+              ...updated[i],
+              toolResult: message.toolResult,
+            }
+            return updated
+          }
+        }
+        return prev
+      })
     } else if (message.toolUse) {
-      // Tool message: just append, keep streaming text visible
+      // Tool message: just append
       setMessages(prev => [...prev, message])
     } else {
-      // Final response: remove streaming placeholders, then append
-      setMessages(prev => [...prev.filter(m => !m.id.startsWith('streaming_') && m.id !== 'gekto_streaming'), message])
+      // Error or other message: just append (don't remove streaming blocks)
+      setMessages(prev => [...prev, message])
     }
   }, [])
 
@@ -637,11 +684,123 @@ export function ChatWindow({
     })
   }
 
+  const toggleThinkingExpanded = (messageId: string) => {
+    setExpandedThinking(prev => {
+      const next = new Set(prev)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      return next
+    })
+  }
+
   const formatToolInput = (fullInput: Record<string, unknown>): string => {
     try {
       return JSON.stringify(fullInput, null, 2)
     } catch {
       return String(fullInput)
+    }
+  }
+
+  // Human-readable tool summary (Claude Code style)
+  const formatToolSummary = (tool: string, groupMessages: typeof messages): string => {
+    const count = groupMessages.length
+    const firstInput = groupMessages[0]?.toolUse?.fullInput as Record<string, unknown> | undefined
+
+    switch (tool) {
+      case 'Read': {
+        if (count === 1 && firstInput?.file_path) {
+          return `Reading ${stripWorkDir(firstInput.file_path as string)}`
+        }
+        return `Reading ${count} files…`
+      }
+      case 'Edit': {
+        if (count === 1 && firstInput?.file_path) {
+          return `Editing ${stripWorkDir(firstInput.file_path as string)}`
+        }
+        return `Editing ${count} files…`
+      }
+      case 'Write': {
+        if (count === 1 && firstInput?.file_path) {
+          return `Writing ${stripWorkDir(firstInput.file_path as string)}`
+        }
+        return `Writing ${count} files…`
+      }
+      case 'Grep': {
+        if (count === 1 && firstInput?.pattern) {
+          return `Searching for "${firstInput.pattern}"…`
+        }
+        return `Searching for ${count} patterns…`
+      }
+      case 'Glob': {
+        if (count === 1 && firstInput?.pattern) {
+          return `Searching for ${firstInput.pattern}…`
+        }
+        return `Searching for ${count} patterns…`
+      }
+      case 'Bash': {
+        if (count === 1 && firstInput?.command) {
+          const cmd = String(firstInput.command)
+          const truncated = cmd.length > 60 ? cmd.slice(0, 57) + '…' : cmd
+          return `Running \`${truncated}\`…`
+        }
+        return `Running ${count} commands…`
+      }
+      case 'Task': {
+        if (count === 1) return 'Running task…'
+        return `Running ${count} tasks…`
+      }
+      default: {
+        if (count === 1) return tool
+        return `${tool} ×${count}`
+      }
+    }
+  }
+
+  // Strip working directory prefix for shorter paths
+  const stripWorkDir = (filePath: string): string => {
+    // Try common prefixes
+    const prefixes = ['/Users/alexey/projects/gekto-swarm/gekto/', '/Users/alexey/projects/gekto-swarm/']
+    for (const prefix of prefixes) {
+      if (filePath.startsWith(prefix)) {
+        return filePath.slice(prefix.length)
+      }
+    }
+    // Fallback: show last 2-3 path segments
+    const parts = filePath.split('/')
+    if (parts.length > 3) {
+      return parts.slice(-3).join('/')
+    }
+    return filePath
+  }
+
+  // Extract short context string from each tool message for tree display
+  const getToolPath = (msg: typeof messages[0]): string | null => {
+    const input = msg.toolUse?.fullInput as Record<string, unknown> | undefined
+    if (!input) return null
+    const tool = msg.toolUse?.tool
+
+    switch (tool) {
+      case 'Read':
+      case 'Edit':
+      case 'Write':
+        return input.file_path ? stripWorkDir(input.file_path as string) : null
+      case 'Grep': {
+        const pattern = input.pattern ? `${input.pattern}` : null
+        const path = input.path ? ` in ${stripWorkDir(input.path as string)}` : ''
+        return pattern ? pattern + path : null
+      }
+      case 'Glob':
+        return input.pattern ? String(input.pattern) : null
+      case 'Bash': {
+        if (!input.command) return null
+        const cmd = String(input.command)
+        return cmd.length > 60 ? cmd.slice(0, 57) + '…' : cmd
+      }
+      default:
+        return null
     }
   }
 
@@ -782,10 +941,13 @@ export function ChatWindow({
           }
           return result.map((item, idx) => {
             if (item.type === 'tool-group') {
-              const toolLabel = item.count > 1 ? `${item.tool} ×${item.count}` : item.tool
               const groupId = item.ids[0]
               const isLast = idx === result.length - 1
               const isRunning = isLast && agentState === 'working' && !!currentTool && currentTool.tool === item.tool
+              const toolSummary = formatToolSummary(item.tool, item.messages)
+              const toolPaths = item.messages.map(m => getToolPath(m)).filter((p): p is string => p !== null)
+              // Only show paths when there are multiple items (single item info is in the summary)
+              const showPaths = item.count > 1 && toolPaths.length > 0
               return (
                 <div key={groupId} className="flex justify-start">
                   <div
@@ -795,32 +957,60 @@ export function ChatWindow({
                     <div className="flex items-center gap-2 py-1">
                       <span
                         style={{
-                          background: 'linear-gradient(135deg, #4ade80, #22c55e)',
-                          WebkitBackgroundClip: 'text',
-                          WebkitTextFillColor: 'transparent',
-                          fontSize: '14px',
+                          color: isRunning ? '#86efac' : 'rgba(255, 255, 255, 0.4)',
+                          fontSize: '12px',
+                          fontWeight: 700,
                           animation: isRunning ? 'blink-triangle 1.2s ease-in-out infinite' : 'none',
                         }}
                       >
                         ◆
                       </span>
-                      <span className={`${isRunning ? 'tool-call-text' : ''} font-mono text-xs`} style={!isRunning ? { color: 'rgba(255, 255, 255, 0.5)' } : undefined}>{toolLabel}</span>
-                      <span className="text-white/30 text-xs ml-auto">
-                        {expandedTools.has(groupId) ? '▼' : '▶'}
+                      <span
+                        className={`font-mono text-xs ${isRunning ? 'tool-call-text' : ''}`}
+                        style={!isRunning ? { color: 'rgba(255, 255, 255, 0.5)' } : undefined}
+                      >
+                        {toolSummary}
                       </span>
                     </div>
+                    {showPaths && !expandedTools.has(groupId) && (
+                      <div className="ml-4 font-mono text-[11px]" style={{ color: 'rgba(255, 255, 255, 0.3)' }}>
+                        {toolPaths.map((path, i) => (
+                          <div key={i}>
+                            <span style={{ color: 'rgba(255, 255, 255, 0.2)' }}>
+                              {i === toolPaths.length - 1 ? '└ ' : '├ '}
+                            </span>
+                            {path}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {expandedTools.has(groupId) && (
                       <div
-                        className="px-3 py-2 font-mono text-xs text-white/70 overflow-auto rounded-lg ml-4 space-y-1"
+                        className="px-3 py-2 font-mono text-xs text-white/70 overflow-auto rounded-lg ml-4 space-y-2"
                         style={{
-                          maxHeight: 200,
+                          maxHeight: 300,
                           background: 'rgba(0, 0, 0, 0.2)',
                         }}
                       >
                         {item.messages.map(m => (
-                          <pre key={m.id} className="whitespace-pre-wrap break-all">
-                            {m.toolUse?.fullInput ? formatToolInput(m.toolUse.fullInput) : m.toolUse?.input || m.toolUse?.tool}
-                          </pre>
+                          <div key={m.id}>
+                            <pre className="whitespace-pre-wrap break-all">
+                              {m.toolUse?.fullInput ? formatToolInput(m.toolUse.fullInput) : m.toolUse?.input || m.toolUse?.tool}
+                            </pre>
+                            {m.toolResult?.content && (
+                              <pre
+                                className="whitespace-pre-wrap break-all mt-1 pt-1"
+                                style={{
+                                  color: 'rgba(255, 255, 255, 0.4)',
+                                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                                  maxHeight: 150,
+                                  overflowY: 'auto',
+                                }}
+                              >
+                                {m.toolResult.content}
+                              </pre>
+                            )}
+                          </div>
                         ))}
                       </div>
                     )}
@@ -914,6 +1104,14 @@ export function ChatWindow({
                   <span className={message.isTerminal ? 'font-mono text-xs' : ''}>
                     {message.text}
                   </span>
+                )}
+                {/* Cost/duration metadata */}
+                {message.sender === 'bot' && !message.isStreaming && (message.cost != null || message.duration != null) && (
+                  <div className="mt-1 font-mono text-[10px]" style={{ color: 'rgba(255, 255, 255, 0.2)' }}>
+                    {message.cost != null && `$${message.cost.toFixed(2)}`}
+                    {message.cost != null && message.duration != null && ' · '}
+                    {message.duration != null && `${Math.round(message.duration / 1000)}s`}
+                  </div>
                 )}
               </div>
             )}
