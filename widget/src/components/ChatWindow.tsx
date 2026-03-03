@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, type DragEvent } from 'react'
-import { FileTextIcon, TrashIcon, ImageIcon, CounterClockwiseClockIcon, Cross2Icon } from '@radix-ui/react-icons'
+import { FileTextIcon, TrashIcon, ImageIcon, CounterClockwiseClockIcon, Cross2Icon, PlusIcon } from '@radix-ui/react-icons'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAgent, useAgentMessageListener, type Message } from '../context/AgentContext'
@@ -90,6 +90,7 @@ export function ChatWindow({
   const [stagedImages, setStagedImages] = useState<string[]>([])
   const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [showSessionHistory, setShowSessionHistory] = useState(false)
+  const [isRestoredSession, setIsRestoredSession] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -120,6 +121,18 @@ export function ChatWindow({
   const agent = agents[lizardId]
   const task = agent?.taskId ? tasks[agent.taskId] : undefined
   const agentName = task?.name
+
+  // Close history dropdown on click outside
+  useEffect(() => {
+    if (!showSessionHistory) return
+    const handler = (e: MouseEvent) => {
+      if (historyDropdownRef.current && !historyDropdownRef.current.contains(e.target as Node)) {
+        setShowSessionHistory(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showSessionHistory])
 
   const isMaster = lizardId === MASTER_ID
   const hasActivePlan = isMaster && currentPlan && currentPlan.status !== 'completed' && currentPlan.status !== 'failed' && currentPlan.status !== 'planning'
@@ -504,7 +517,8 @@ export function ChatWindow({
 
   const handleClearChat = async () => {
     // Archive current session before clearing (only for master with user messages beyond greeting)
-    if (isMaster) {
+    // Skip archiving if this is a restored session (already archived)
+    if (isMaster && !isRestoredSession) {
       const hasUserContent = messages.some(m => m.sender === 'user')
       if (hasUserContent) {
         const toIso = (v: Date | string): string => v instanceof Date ? v.toISOString() : String(v)
@@ -552,6 +566,7 @@ export function ChatWindow({
 
     // Reset the server-side session (clears Claude conversation history)
     resetAgent(lizardId)
+    setIsRestoredSession(false)
 
     // Save cleared state to server via WS
     const ws = (window as unknown as { __gektoWebSocket?: WebSocket }).__gektoWebSocket
@@ -585,6 +600,7 @@ export function ChatWindow({
     }
     // Tell server to restore plan + switch Claude session ID
     sendToServer({ type: 'restore_gekto_session', sessionId })
+    setIsRestoredSession(true)
     setShowSessionHistory(false)
   }
 
@@ -686,6 +702,14 @@ export function ChatWindow({
                     Session History
                   </div>
                   <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    <div
+                      className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-white/5 transition-colors"
+                      onClick={() => { setShowSessionHistory(false); handleClearChat() }}
+                      style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}
+                    >
+                      <PlusIcon width={12} height={12} className="text-white/50" />
+                      <span className="text-xs text-white/70">New chat</span>
+                    </div>
                     {gektoSessions.length === 0 ? (
                       <div className="px-3 py-4 text-xs text-white/30 text-center">
                         No past sessions
@@ -1104,6 +1128,7 @@ export function ChatWindow({
                     color: 'rgba(239, 68, 68, 0.8)',
                     border: '1px solid rgba(239, 68, 68, 0.3)',
                   }}
+                
                 >
                   <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><rect width="8" height="8" rx="1" /></svg>
                   <span>Stop</span>

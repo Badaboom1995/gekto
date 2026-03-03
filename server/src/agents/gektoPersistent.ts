@@ -186,13 +186,10 @@ function spawnOpus(): void {
     updateState()
   })
 
-  // Warm up: send a quick message to trigger ready state
-  setTimeout(() => {
-    if (opusProcess && !opusProcess.killed && opusProcess.stdin.writable) {
-      const warmup = { type: 'user', message: { role: 'user', content: 'hi' } }
-      opusProcess.stdin.write(JSON.stringify(warmup) + '\n')
-    }
-  }, 500)
+  // Process is warm once spawned — no need to send a message
+  opusReady = true
+  opusLoading = false
+  updateState()
 }
 
 function handleOpusEvent(event: Record<string, unknown>): void {
