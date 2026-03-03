@@ -3,14 +3,11 @@ import { Editor, createShapeId } from 'tldraw'
 import type { TLShapeId } from 'tldraw'
 import type { Agent, Task } from '../../store/store'
 import type { TaskShape, TaskStatus as ShapeStatus } from './TaskShape'
+import { orderFrameElements } from './orderFrameElements'
 
-// Grid layout for new shapes
+// Card dimensions for task shapes
 const CARD_WIDTH = 300
 const CARD_HEIGHT = 200
-const GAP = 20
-const COLS = 4
-const START_X = 100
-const START_Y = 100
 
 // How long to keep deleted agent data for undo (30 seconds)
 const UNDO_BUFFER_TTL = 30_000
@@ -116,7 +113,6 @@ export function useAgentShapeSync(
 ) {
   // Map agent ID -> shape ID (since we use random IDs like Add Tasks button)
   const agentToShapeRef = useRef<Map<string, TLShapeId>>(new Map())
-  const gridIndexRef = useRef(0)
   // Track shapes we're deleting ourselves (to avoid triggering onDeleteAgent)
   const deletingShapesRef = useRef<Set<TLShapeId>>(new Set())
   // Buffer of recently deleted agents for undo support
@@ -143,8 +139,10 @@ export function useAgentShapeSync(
     const currentAgentIds = new Set(agentsWithTasks.map(a => a.agent.id))
 
     // 1. Create shapes for NEW agents (or link to existing shapes from localStorage)
+    // First pass: link existing shapes and collect truly new agents
+    const newAgents: typeof agentsWithTasks = []
     for (let i = 0; i < agentsWithTasks.length; i++) {
-      const { agent, task, currentTool, streamingText, workingDir, fileChangeCount } = agentsWithTasks[i]
+      const { agent } = agentsWithTasks[i]
       if (!agentToShape.has(agent.id)) {
         // Check if a shape with this agentId already exists (from tldraw localStorage)
         const existingShape = editor.getCurrentPageShapes().find(
@@ -153,42 +151,118 @@ export function useAgentShapeSync(
         )
 
         if (existingShape) {
-          // Link to existing shape instead of creating new one
           agentToShape.set(agent.id, existingShape.id)
         } else {
-          // Calculate grid position for new shape
-          const gridIndex = gridIndexRef.current++
-          const col = gridIndex % COLS
-          const row = Math.floor(gridIndex / COLS)
-          const x = START_X + col * (CARD_WIDTH + GAP)
-          const y = START_Y + row * (CARD_HEIGHT + GAP)
+          newAgents.push(agentsWithTasks[i])
+        }
+      }
+      // Clear from undo buffer if agent is back (restored successfully)
+      deletedAgentsRef.current.delete(agent.id)
+    }
 
-          // Build props from agent/task data (use array index for "Agent X" naming)
-          const props = buildShapeProps(agent, task, i, currentTool, streamingText, workingDir, fileChangeCount)
+    // Second pass: place new agents at viewport center (or into selected frame)
+    if (newAgents.length > 0) {
+      const viewportCenter = editor.getViewportScreenCenter()
+      const pageCenter = editor.screenToPage(viewportCenter)
 
-          // Create shape ID (no argument, like Add Tasks button)
+      // Check if a frame is currently selected — if so, put agents inside it
+      const selectedShapes = editor.getSelectedShapes()
+      const selectedFrame = selectedShapes.length === 1 && selectedShapes[0].type === 'frame'
+        ? selectedShapes[0]
+        : null
+
+      if (selectedFrame) {
+        // Place all new agents into the selected frame
+        for (let i = 0; i < newAgents.length; i++) {
+          const entry = newAgents[i]
+          const idx = agentsWithTasks.indexOf(entry)
+          const props = buildShapeProps(entry.agent, entry.task, idx, entry.currentTool, entry.streamingText, entry.workingDir, entry.fileChangeCount)
           const shapeId = createShapeId()
 
           try {
-            // Create shape exactly like Add Tasks button
             editor.createShape({
               id: shapeId,
               type: 'task' as const,
-              x,
-              y,
+              x: 0,
+              y: 0,
+              parentId: selectedFrame.id,
               props,
             } as any)
-
-            // Store mapping
-            agentToShape.set(agent.id, shapeId)
+            agentToShape.set(entry.agent.id, shapeId)
           } catch (err) {
             console.error('[AgentShapeSync] Error creating shape:', err)
           }
         }
-      }
 
-      // Clear from undo buffer if agent is back (restored successfully)
-      deletedAgentsRef.current.delete(agent.id)
+        // Re-arrange all children inside the frame
+        orderFrameElements(editor, selectedFrame)
+      } else if (newAgents.length === 1) {
+        // Single agent, no frame selected: place at viewport center
+        const entry = newAgents[0]
+        const idx = agentsWithTasks.indexOf(entry)
+        const props = buildShapeProps(entry.agent, entry.task, idx, entry.currentTool, entry.streamingText, entry.workingDir, entry.fileChangeCount)
+        const shapeId = createShapeId()
+
+        try {
+          editor.createShape({
+            id: shapeId,
+            type: 'task' as const,
+            x: pageCenter.x - CARD_WIDTH / 2,
+            y: pageCenter.y - CARD_HEIGHT / 2,
+            props,
+          } as any)
+          agentToShape.set(entry.agent.id, shapeId)
+        } catch (err) {
+          console.error('[AgentShapeSync] Error creating shape:', err)
+        }
+      } else {
+        // Batch, no frame selected: create a new frame at viewport center
+        const count = newAgents.length
+        const cols = Math.min(count, 3)
+        const rows = Math.ceil(count / 3)
+        const padding = 20
+        const gap = 16
+        const frameW = padding * 2 + cols * CARD_WIDTH + (cols - 1) * gap
+        const frameH = padding * 2 + rows * CARD_HEIGHT + (rows - 1) * gap + 32 // 32 for title bar
+
+        const frameId = createShapeId()
+        editor.createShape({
+          id: frameId,
+          type: 'frame',
+          x: pageCenter.x - frameW / 2,
+          y: pageCenter.y - frameH / 2,
+          props: {
+            w: frameW,
+            h: frameH,
+            name: 'Tasks',
+          },
+        })
+
+        for (let i = 0; i < newAgents.length; i++) {
+          const entry = newAgents[i]
+          const idx = agentsWithTasks.indexOf(entry)
+          const props = buildShapeProps(entry.agent, entry.task, idx, entry.currentTool, entry.streamingText, entry.workingDir, entry.fileChangeCount)
+          const shapeId = createShapeId()
+
+          try {
+            editor.createShape({
+              id: shapeId,
+              type: 'task' as const,
+              x: 0,
+              y: 0,
+              parentId: frameId,
+              props,
+            } as any)
+            agentToShape.set(entry.agent.id, shapeId)
+          } catch (err) {
+            console.error('[AgentShapeSync] Error creating shape:', err)
+          }
+        }
+
+        // Arrange children neatly inside the frame
+        const frameShape = editor.getShape(frameId)
+        orderFrameElements(editor, frameShape)
+      }
     }
 
     // 2. Update props for EXISTING agents (no position change)
@@ -245,9 +319,6 @@ export function useAgentShapeSync(
     const existingShapes = editor.getCurrentPageShapes().filter(
       s => (s.type as string) === 'task'
     )
-
-    // Set grid index to continue after existing shapes
-    gridIndexRef.current = existingShapes.length
 
     // Rebuild mapping from shapes that have agentId
     for (const shape of existingShapes) {
