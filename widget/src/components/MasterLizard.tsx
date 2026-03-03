@@ -57,7 +57,7 @@ export function MasterLizard() {
       id: 'chat',
       icon: <ChatBubbleIcon width={20} height={20} />,
       label: isChatOpen ? 'Close Chat' : 'Chat',
-      hotkey: '⇧C',
+      hotkey: undefined,
       active: isChatOpen,
       onClick: () => isChatOpen ? closeChat() : openChat(MASTER_ID, 'task'),
     },
@@ -65,7 +65,7 @@ export function MasterLizard() {
       id: 'spawn',
       icon: <PlusCircledIcon width={20} height={20} />,
       label: 'Spawn Agent',
-      hotkey: '⇧S',
+      hotkey: '⇧|',
       onClick: () => {
         addAgent()
       },
@@ -74,7 +74,7 @@ export function MasterLizard() {
       id: 'whiteboard',
       icon: <DashboardIcon width={20} height={20} />,
       label: isWhiteboardOpen ? 'Close Board' : 'Whiteboard',
-      hotkey: '⇧B',
+      hotkey: '⇧␣',
       active: isWhiteboardOpen,
       onClick: () => {
         setWhiteboardOpen(!isWhiteboardOpen)
@@ -101,24 +101,15 @@ export function MasterLizard() {
         return
       }
 
-      // Shift+C or Shift+Enter to open master chat and focus input
-      if (e.shiftKey && (e.key === 'C' || e.key === 'c' || e.key === 'Enter')) {
-        e.preventDefault()
-        openChat(MASTER_ID, 'task')
-        // Focus input after chat opens
-        setTimeout(() => inputRef.current?.focus(), 50)
-        return
-      }
-
-      // Shift+S to spawn agent
-      if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
+      // Shift+\ to spawn agent
+      if (e.shiftKey && e.key === '|') {
         e.preventDefault()
         addAgent()
         return
       }
 
-      // Shift+B to toggle whiteboard
-      if (e.shiftKey && (e.key === 'B' || e.key === 'b')) {
+      // Shift+Space to toggle whiteboard
+      if (e.shiftKey && e.key === ' ') {
         e.preventDefault()
         setWhiteboardOpen(!isWhiteboardOpen)
         return
