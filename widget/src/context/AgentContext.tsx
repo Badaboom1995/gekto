@@ -73,6 +73,10 @@ interface LizardSession {
   lastResponse?: string
   lastStatus?: 'done' | 'pending'
   streamingText?: string
+  thinkingText?: string
+  cost?: number
+  duration?: number
+  blockIndex?: number
 }
 
 interface AgentContextValue {
@@ -177,7 +181,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
         case 'state':
           if (lizardId) {
             if (msg.state === 'working') {
-              updateSession(lizardId, { state: 'working', queuePosition: 0, streamingText: '' })
+              updateSession(lizardId, { state: 'working', queuePosition: 0, streamingText: '', thinkingText: '', blockIndex: 0 })
               syncAgentStatus(lizardId, 'working')
             } else if (msg.state === 'ready') {
               updateSession(lizardId, { state: 'ready', currentTool: null, queuePosition: 0 })
@@ -222,7 +226,16 @@ export function AgentProvider({ children }: AgentProviderProps) {
               input: msg.input as string | undefined,
               fullInput: msg.fullInput as Record<string, unknown> | undefined,
             }
-            updateSession(lizardId, { currentTool: toolStatus })
+
+            if (msg.status === 'running') {
+              // Increment block index so next text/thinking block gets a new ID
+              const curSession = sessionsRef.current.get(lizardId) ?? { ...DEFAULT_SESSION }
+              const newBlockIndex = (curSession.blockIndex ?? 0) + 1
+              updateSession(lizardId, { currentTool: toolStatus, blockIndex: newBlockIndex, streamingText: '', thinkingText: '' })
+              sessionsRef.current.set(lizardId, { ...curSession, currentTool: toolStatus, blockIndex: newBlockIndex, streamingText: '', thinkingText: '' })
+            } else {
+              updateSession(lizardId, { currentTool: toolStatus })
+            }
 
             if (msg.status === 'running') {
               const toolMessage: Message = {
@@ -257,6 +270,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
 
             if (cleanText) {
               const currentSession = sessionsRef.current.get(lizardId)
+              const blockIdx = currentSession?.blockIndex ?? 0
               updateSession(lizardId, { streamingText: cleanText })
               sessionsRef.current.set(lizardId, {
                 ...(currentSession ?? DEFAULT_SESSION),
@@ -266,12 +280,63 @@ export function AgentProvider({ children }: AgentProviderProps) {
               const listener = messageListenersRef.current.get(lizardId)
               if (listener) {
                 listener({
-                  id: `streaming_${lizardId}`,
+                  id: `streaming_${lizardId}_${blockIdx}`,
                   text: cleanText,
                   sender: 'bot',
                   timestamp: new Date().toISOString(),
                   isStreaming: true,
                 } as Message & { isStreaming: boolean })
+              }
+            }
+          }
+          break
+
+        case 'thinking':
+          if (lizardId) {
+            const thinkingText = msg.text as string
+            if (thinkingText) {
+              const currentSession = sessionsRef.current.get(lizardId)
+              const blockIdx = currentSession?.blockIndex ?? 0
+              updateSession(lizardId, { thinkingText: thinkingText })
+              sessionsRef.current.set(lizardId, {
+                ...(currentSession ?? DEFAULT_SESSION),
+                thinkingText: thinkingText,
+              })
+
+              const listener = messageListenersRef.current.get(lizardId)
+              if (listener) {
+                listener({
+                  id: `thinking_${lizardId}_${blockIdx}`,
+                  text: thinkingText,
+                  sender: 'bot',
+                  timestamp: new Date().toISOString(),
+                  isStreaming: true,
+                  isThinking: true,
+                } as Message & { isStreaming: boolean; isThinking: boolean })
+              }
+            }
+          }
+          break
+
+        case 'tool_result':
+          if (lizardId) {
+            const toolResultContent = msg.content as string
+            const toolResultName = msg.tool as string
+            const toolUseId = msg.toolUseId as string
+            if (toolResultContent) {
+              const listener = messageListenersRef.current.get(lizardId)
+              if (listener) {
+                listener({
+                  id: `tool_result_${toolUseId || Date.now()}`,
+                  text: toolResultContent,
+                  sender: 'bot',
+                  timestamp: new Date().toISOString(),
+                  toolResult: {
+                    tool: toolResultName,
+                    content: toolResultContent,
+                    toolUseId,
+                  },
+                } as Message & { toolResult: { tool: string; content: string; toolUseId: string } })
               }
             }
           }
@@ -400,6 +465,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
         case 'gekto_chat':
         case 'gekto_classified':
         case 'gekto_text':
+        case 'gekto_thinking':
         case 'gekto_remove':
         case 'prompt_generated':
         case 'prompts_ready':
@@ -436,11 +502,16 @@ export function AgentProvider({ children }: AgentProviderProps) {
             }
           }
 
+          const responseCost = msg.cost as number | undefined
+          const responseDuration = msg.duration as number | undefined
+
           const newMessage: Message = {
             id: Date.now().toString(),
             text,
             sender: 'bot',
             timestamp: new Date().toISOString(),
+            cost: responseCost,
+            duration: responseDuration,
           }
 
           // Save sessionId to task for recovery
@@ -460,16 +531,33 @@ export function AgentProvider({ children }: AgentProviderProps) {
           }
 
           if (lizardId) {
+            // Save full response for chat history (persistence on reload)
             saveMessage(lizardId, newMessage)
+
             const listener = messageListenersRef.current.get(lizardId)
             if (listener) {
-              listener(newMessage)
+              if (msg.type === 'error') {
+                // Errors always show as a new message
+                listener(newMessage)
+              } else {
+                // Send finalize signal — stops streaming, adds cost/duration
+                // Don't duplicate the text since it's already shown via streaming blocks
+                listener({
+                  id: `finalize_${Date.now()}`,
+                  text: '',
+                  sender: 'bot',
+                  timestamp: new Date().toISOString(),
+                  isFinalize: true,
+                  cost: responseCost,
+                  duration: responseDuration,
+                } as Message & { isFinalize: boolean })
+              }
             }
 
             const statusToStore = extractedStatus || 'pending'
-            updateSession(lizardId, { lastResponse: text, lastStatus: statusToStore, streamingText: text })
+            updateSession(lizardId, { lastResponse: text, lastStatus: statusToStore, streamingText: '', thinkingText: '', cost: responseCost, duration: responseDuration })
             const currentSession = sessionsRef.current.get(lizardId) ?? { ...DEFAULT_SESSION }
-            sessionsRef.current.set(lizardId, { ...currentSession, lastResponse: text, lastStatus: statusToStore, streamingText: text })
+            sessionsRef.current.set(lizardId, { ...currentSession, lastResponse: text, lastStatus: statusToStore, streamingText: '', thinkingText: '', cost: responseCost, duration: responseDuration })
 
             // Worker error → mark task failed
             if (lizardId.startsWith('worker_') && msg.type === 'error') {

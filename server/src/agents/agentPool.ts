@@ -162,9 +162,16 @@ export async function sendMessage(
     imagePaths = saveImagesToTempFiles(images)
   }
 
+  // Accumulators for streaming deltas — reset on each tool start
+  let accumulatedText = ''
+  let accumulatedThinking = ''
+
   // Create streaming callbacks that use session's current WebSocket
   const callbacks: StreamCallbacks = {
     onToolStart: (tool: string, input?: Record<string, unknown>) => {
+      // Reset accumulators when a new tool starts (text block ended)
+      accumulatedText = ''
+      accumulatedThinking = ''
       safeSend(session, {
         type: 'tool',
         lizardId,
@@ -183,10 +190,28 @@ export async function sendMessage(
       })
     },
     onText: (text: string) => {
+      accumulatedText += text
       safeSend(session, {
         type: 'text',
         lizardId,
-        text,
+        text: accumulatedText,
+      })
+    },
+    onThinking: (text: string) => {
+      accumulatedThinking += text
+      safeSend(session, {
+        type: 'thinking',
+        lizardId,
+        text: accumulatedThinking,
+      })
+    },
+    onToolResult: (tool: string, content: string, toolUseId: string) => {
+      safeSend(session, {
+        type: 'tool_result',
+        lizardId,
+        tool,
+        content: content.length > 2000 ? content.substring(0, 2000) + '…' : content,
+        toolUseId,
       })
     },
     onFileChange: (change: FileChange) => {

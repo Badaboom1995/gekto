@@ -1019,6 +1019,26 @@ export function ChatWindow({
               )
             }
             const message = item.message
+
+            // Thinking message — rectangle block
+            if (message.isThinking) {
+              const isActive = !!message.isStreaming
+              return (
+                <div key={message.id} className="flex justify-start">
+                  <div
+                    className="max-w-[90%] px-3 py-2 text-sm whitespace-pre-wrap"
+                    style={{
+                      color: isActive ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.3)',
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid rgba(255, 255, 255, ${isActive ? 0.1 : 0.05})`,
+                    }}
+                  >
+                    {message.text}
+                  </div>
+                </div>
+              )
+            }
+
             return (
           <div
             key={message.id}
@@ -1044,7 +1064,7 @@ export function ChatWindow({
                   border: message.isTerminal
                     ? '1px solid rgba(34, 197, 94, 0.3)'
                     : message.sender === 'user'
-                      ? '1px solid rgba(134, 239, 172, 0.08)'
+                      ? '1px solid rgba(255, 255, 255, 0.1)'
                       : 'none',
                   padding: message.sender === 'bot' && !message.isTerminal ? '0' : undefined,
                 }}

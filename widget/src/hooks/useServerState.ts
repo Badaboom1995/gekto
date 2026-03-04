@@ -26,6 +26,15 @@ export interface Message {
   systemType?: 'mode' | 'status' | 'info'
   systemData?: Record<string, unknown>
   isStreaming?: boolean
+  isThinking?: boolean
+  isFinalize?: boolean
+  toolResult?: {
+    tool: string
+    content: string
+    toolUseId: string
+  }
+  cost?: number
+  duration?: number
 }
 
 export interface Persona {

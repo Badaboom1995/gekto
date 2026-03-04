@@ -15,6 +15,8 @@ export interface StreamCallbacks {
   onToolStart?: (tool: string, input?: Record<string, unknown>) => void
   onToolEnd?: (tool: string) => void
   onText?: (text: string) => void
+  onThinking?: (text: string) => void
+  onToolResult?: (tool: string, content: string, toolUseId: string) => void
   onFileChange?: (change: FileChange) => void
 }
 

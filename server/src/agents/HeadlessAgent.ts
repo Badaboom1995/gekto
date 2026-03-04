@@ -102,6 +102,8 @@ export class HeadlessAgent implements AgentProvider {
       let buffer = ''
       let lastResult: AgentResponse | null = null
       let currentTool: string | null = null
+      const toolUseIdToName = new Map<string, string>()
+      const streamState = { receivedDeltas: false }
 
       proc.stdout.on('data', (data) => {
         buffer += data.toString()
@@ -115,7 +117,7 @@ export class HeadlessAgent implements AgentProvider {
           try {
             const event = JSON.parse(line)
 
-            this.processStreamEvent(event, callbacks, (tool) => {
+            this.processStreamEvent(event, callbacks, toolUseIdToName, streamState, (tool) => {
               currentTool = tool
             }, () => {
               currentTool = null
@@ -168,16 +170,23 @@ export class HeadlessAgent implements AgentProvider {
   private processStreamEvent(
     event: Record<string, unknown>,
     callbacks?: StreamCallbacks,
+    toolUseIdToName?: Map<string, string>,
+    streamState?: { receivedDeltas: boolean },
     setCurrentTool?: (tool: string | null) => void,
     clearCurrentTool?: () => void
   ) {
     if (event.type === 'assistant' && event.message) {
-      const message = event.message as { content?: Array<{ type: string; id?: string; name?: string; text?: string; input?: Record<string, unknown> }> }
+      const message = event.message as { content?: Array<{ type: string; id?: string; name?: string; text?: string; thinking?: string; input?: Record<string, unknown> }> }
       if (message.content) {
         for (const block of message.content) {
           if (block.type === 'tool_use' && block.name) {
             setCurrentTool?.(block.name)
             callbacks?.onToolStart?.(block.name, block.input)
+
+            // Track tool name by ID for tool_result matching
+            if (block.id) {
+              toolUseIdToName?.set(block.id, block.name)
+            }
 
             // Track file changes for Write/Edit tools
             if ((block.name === 'Write' || block.name === 'Edit') && block.id && block.input?.file_path) {
@@ -190,20 +199,54 @@ export class HeadlessAgent implements AgentProvider {
               })
             }
           }
-          // Extract text content from assistant messages
-          if (block.type === 'text' && block.text) {
+          // Fallback: emit full text block only if no streaming deltas were received
+          if (block.type === 'text' && block.text && !streamState?.receivedDeltas) {
             callbacks?.onText?.(block.text)
+          }
+          // Thinking block from assistant event (fallback when no thinking_delta)
+          if (block.type === 'thinking' && block.thinking && !streamState?.receivedDeltas) {
+            callbacks?.onThinking?.(block.thinking)
           }
         }
       }
     }
 
+    // Streaming deltas — character-by-character text and thinking
+    if (event.type === 'content_block_delta') {
+      const delta = event.delta as { type?: string; text?: string; thinking?: string } | undefined
+      if (delta?.type === 'text_delta' && delta.text) {
+        if (streamState) streamState.receivedDeltas = true
+        callbacks?.onText?.(delta.text)
+      } else if (delta?.type === 'thinking_delta' && delta.thinking) {
+        if (streamState) streamState.receivedDeltas = true
+        callbacks?.onThinking?.(delta.thinking)
+      }
+    }
+
     if (event.type === 'user' && event.message) {
-      const message = event.message as { content?: Array<{ type: string; tool_use_id?: string }> }
+      const message = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: unknown }> }
       if (message.content) {
         for (const block of message.content) {
           if (block.type === 'tool_result') {
             clearCurrentTool?.()
+
+            // Extract tool result content
+            if (block.tool_use_id && block.content != null) {
+              const toolName = toolUseIdToName?.get(block.tool_use_id) || 'unknown'
+              let resultText = ''
+              if (typeof block.content === 'string') {
+                resultText = block.content
+              } else if (Array.isArray(block.content)) {
+                // content is array of {type: 'text', text: '...'} blocks
+                resultText = (block.content as Array<{ type?: string; text?: string }>)
+                  .filter(c => c.type === 'text' && c.text)
+                  .map(c => c.text)
+                  .join('\n')
+              }
+              if (resultText) {
+                callbacks?.onToolResult?.(toolName, resultText, block.tool_use_id)
+              }
+            }
 
             // Complete file change tracking
             if (block.tool_use_id && this.pendingFileChanges.has(block.tool_use_id)) {

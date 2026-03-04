@@ -13,6 +13,7 @@ export interface GektoCallbacks {
   onToolStart?: (tool: string, input?: Record<string, unknown>) => void
   onToolEnd?: (tool: string) => void
   onText?: (text: string) => void
+  onThinking?: (text: string) => void
   onResult?: (text: string) => void
   onError?: (error: string) => void
 }
@@ -85,6 +86,7 @@ let opusPendingResolve: ((result: string) => void) | null = null
 let opusBuffer = ''
 let opusCallbacks: GektoCallbacks | null = null
 let opusCurrentTool: string | null = null
+let opusReceivedDeltas = false
 
 // Session ID for persistent history - generated once and shared across all Gekto calls
 // This allows both direct mode (persistent process) and plan mode (one-shot calls) to share history
@@ -122,7 +124,7 @@ function spawnOpus(): void {
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
     '--verbose',
-    '--model', 'claude-sonnet-4-6',
+    '--model', 'claude-opus-4-5-20251101',
     '--system-prompt', GEKTO_SYSTEM_PROMPT,
     '--dangerously-skip-permissions',
     '--disallowed-tools', 'Bash', 'Task',
@@ -202,14 +204,17 @@ function handleOpusEvent(event: Record<string, unknown>): void {
     }
   }
 
-  // Tool use detection from assistant message
+  // Tool use detection + thinking from assistant message
   if (event.type === 'assistant' && event.message) {
-    const message = event.message as { content?: Array<{ type: string; name?: string; input?: Record<string, unknown> }> }
+    const message = event.message as { content?: Array<{ type: string; name?: string; thinking?: string; input?: Record<string, unknown> }> }
     if (message.content) {
       for (const block of message.content) {
         if (block.type === 'tool_use' && block.name) {
           opusCurrentTool = block.name
           opusCallbacks?.onToolStart?.(block.name, block.input)
+        }
+        if (block.type === 'thinking' && block.thinking && !opusReceivedDeltas) {
+          opusCallbacks?.onThinking?.(block.thinking)
         }
       }
     }
@@ -232,9 +237,11 @@ function handleOpusEvent(event: Record<string, unknown>): void {
   if (event.type === 'content_block_delta') {
     const delta = event.delta as { type?: string; text?: string; thinking?: string } | undefined
     if (delta?.type === 'text_delta' && delta.text) {
+      opusReceivedDeltas = true
       opusCallbacks?.onText?.(delta.text)
     } else if (delta?.type === 'thinking_delta' && delta.thinking) {
-      opusCallbacks?.onText?.(delta.thinking)
+      opusReceivedDeltas = true
+      opusCallbacks?.onThinking?.(delta.thinking)
     }
   }
 

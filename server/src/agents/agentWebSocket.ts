@@ -122,9 +122,17 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
             }
 
             try {
+              // Server-side accumulators and block counter
+              let accThinking = ''
+              let accText = ''
+              let blockIndex = 0
+
               // Streaming callbacks for tool events and text
               const planCallbacks: PlanCallbacks = {
                 onToolStart: (tool, input) => {
+                  accThinking = ''
+                  accText = ''
+                  blockIndex++
                   ws.send(JSON.stringify({
                     type: 'tool',
                     lizardId: 'master',
@@ -143,10 +151,21 @@ export function setupAgentWebSocket(server: Server, path: string = '/__gekto/age
                   }))
                 },
                 onText: (text) => {
+                  accText += text
                   ws.send(JSON.stringify({
                     type: 'gekto_text',
                     planId: msg.planId,
-                    text,
+                    text: accText,
+                    blockIndex,
+                  }))
+                },
+                onThinking: (text) => {
+                  accThinking += text
+                  ws.send(JSON.stringify({
+                    type: 'gekto_thinking',
+                    planId: msg.planId,
+                    text: accThinking,
+                    blockIndex,
                   }))
                 },
               }

@@ -23,6 +23,7 @@ export interface PlanCallbacks {
   onToolStart?: (tool: string, input?: Record<string, unknown>) => void
   onToolEnd?: (tool: string) => void
   onText?: (text: string) => void
+  onThinking?: (text: string) => void
 }
 
 // Existing plan context for modifications
@@ -109,6 +110,7 @@ If modifying, use update_plan with ALL tasks (existing + changes).]`
     onToolStart: callbacks?.onToolStart ? (tool, input) => callbacks.onToolStart!(tool, input) : undefined,
     onToolEnd: callbacks?.onToolEnd ? (tool) => callbacks.onToolEnd!(tool) : undefined,
     onText: callbacks?.onText ? (text) => callbacks.onText!(text) : undefined,
+    onThinking: callbacks?.onThinking ? (text) => callbacks.onThinking!(text) : undefined,
   }
 
   const resultJson = await sendPlanningPrompt(contextPrompt, planCallbacks)
@@ -300,7 +302,7 @@ function runClaudeOnce(
       '-p', prompt,
       '--output-format', 'stream-json',
       '--verbose',
-      '--model', 'claude-sonnet-4-6',
+      '--model', 'claude-opus-4-5-20251101',
       '--system-prompt', systemPrompt,
       '--dangerously-skip-permissions',
       '--disallowed-tools', 'Task', 'Edit', 'Write', 'Bash',
@@ -354,7 +356,7 @@ function runClaudeOnce(
             console.log(`[Gekto] event: ${event.type}${event.subtype ? '/' + event.subtype : ''}`)
           }
 
-          // Stream tool events
+          // Stream tool events + thinking from assistant message
           if (event.type === 'assistant' && event.message?.content) {
             for (const block of event.message.content) {
               if (block.type === 'tool_use' && block.name) {
@@ -362,6 +364,9 @@ function runClaudeOnce(
                 const inputSummary = block.input?.file_path || block.input?.pattern || block.input?.command?.slice(0, 80) || ''
                 console.log(`[Gekto] TOOL START: ${block.name} ${inputSummary}`)
                 callbacks?.onToolStart?.(block.name, block.input)
+              }
+              if (block.type === 'thinking' && block.thinking) {
+                callbacks?.onThinking?.(block.thinking)
               }
             }
           }
@@ -383,7 +388,7 @@ function runClaudeOnce(
             if (delta?.type === 'text_delta' && delta.text) {
               callbacks?.onText?.(delta.text)
             } else if (delta?.type === 'thinking_delta' && delta.thinking) {
-              callbacks?.onText?.(delta.thinking)
+              callbacks?.onThinking?.(delta.thinking)
             }
           }
 

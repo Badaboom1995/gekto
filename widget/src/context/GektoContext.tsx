@@ -80,7 +80,7 @@ interface GektoProviderProps {
 }
 
 // Accumulator for streaming text deltas from Gekto during planning
-let gektoStreamingText = ''
+// No longer needed — server accumulates per block
 
 export function GektoProvider({ children }: GektoProviderProps) {
   // Access SwarmContext for chat control
@@ -504,14 +504,14 @@ export function GektoProvider({ children }: GektoProviderProps) {
         break
 
       case 'gekto_text':
-        // Accumulate streaming text deltas and forward to master chat
+        // Server sends accumulated text per block — use blockIndex for unique IDs
         if (msg.text) {
-          gektoStreamingText += msg.text
+          const textBlockIdx = (msg as Record<string, unknown>).blockIndex ?? 0
           const listener = (window as unknown as { __agentMessageListeners?: Map<string, (message: { id: string; text: string; sender: 'bot'; timestamp: Date; isStreaming?: boolean }) => void> }).__agentMessageListeners?.get('master')
           if (listener) {
             listener({
-              id: 'gekto_streaming',
-              text: gektoStreamingText,
+              id: `gekto_streaming_${textBlockIdx}`,
+              text: msg.text,
               sender: 'bot',
               timestamp: new Date(),
               isStreaming: true,
@@ -520,8 +520,25 @@ export function GektoProvider({ children }: GektoProviderProps) {
         }
         break
 
+      case 'gekto_thinking':
+        // Server sends accumulated thinking per block — use blockIndex for unique IDs
+        if (msg.text) {
+          const thinkBlockIdx = (msg as Record<string, unknown>).blockIndex ?? 0
+          const listener = (window as unknown as { __agentMessageListeners?: Map<string, (message: { id: string; text: string; sender: 'bot'; timestamp: Date; isStreaming?: boolean; isThinking?: boolean }) => void> }).__agentMessageListeners?.get('master')
+          if (listener) {
+            listener({
+              id: `gekto_thinking_${thinkBlockIdx}`,
+              text: msg.text,
+              sender: 'bot',
+              timestamp: new Date(),
+              isStreaming: true,
+              isThinking: true,
+            })
+          }
+        }
+        break
+
       case 'gekto_chat':
-        gektoStreamingText = ''
         if (msg.message) {
           const listener = (window as unknown as { __agentMessageListeners?: Map<string, (message: { id: string; text: string; sender: 'bot'; timestamp: Date }) => void> }).__agentMessageListeners?.get('master')
           if (listener) {
@@ -561,7 +578,6 @@ export function GektoProvider({ children }: GektoProviderProps) {
         break
 
       case 'plan_created':
-        gektoStreamingText = ''
         // Plan is already stored in server state via mutate() in agentWebSocket.ts
         // Just open the panel
         setIsPlanPanelOpen(true)
