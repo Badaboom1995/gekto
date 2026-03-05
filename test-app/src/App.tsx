@@ -3,6 +3,7 @@ function App() {
     <div
       style={{
         display: 'flex',
+        flexDirection: 'column' as const,
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
@@ -46,6 +47,19 @@ function App() {
       >
         Gekto
       </h1>
+      <p
+        style={{
+          position: 'relative',
+          fontSize: 24,
+          fontWeight: 400,
+          letterSpacing: '0.15em',
+          color: 'rgba(255, 255, 255, 0.25)',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          marginTop: -48,
+        }}
+      >
+        Playground
+      </p>
     </div>
   )
 }
